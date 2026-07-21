@@ -47,6 +47,23 @@ async def stop_training(request: Request) -> TrainStatusResponse:
     return TrainStatusResponse(**supervisor.status())
 
 
+@router.post("/train/pause", response_model=TrainStatusResponse)
+async def pause_training(request: Request) -> TrainStatusResponse:
+    """SIGSTOP the run. It keeps its arena and optimizer state, so resume is exact."""
+    supervisor = get_supervisor(request)
+    if not await supervisor.pause():
+        raise HTTPException(status.HTTP_409_CONFLICT, "no active run to pause")
+    return TrainStatusResponse(**supervisor.status())
+
+
+@router.post("/train/resume", response_model=TrainStatusResponse)
+async def resume_training(request: Request) -> TrainStatusResponse:
+    supervisor = get_supervisor(request)
+    if not await supervisor.resume():
+        raise HTTPException(status.HTTP_409_CONFLICT, "no paused run to resume")
+    return TrainStatusResponse(**supervisor.status())
+
+
 @router.get("/train/status", response_model=TrainStatusResponse)
 async def training_status(request: Request) -> TrainStatusResponse:
     return TrainStatusResponse(**get_supervisor(request).status())

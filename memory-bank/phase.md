@@ -2,9 +2,15 @@
 
 ## Current Phase
 
-**COMPLETE — CSLLM 1.0 and 2.0, all eight phases delivered.**
-325 Python tests + 39 frontend tests pass, 0 compiler warnings, ruff clean, `tsc -b` clean.
-Every UI phase was verified by driving the real app in headless Chrome, not by inspection.
+**CSLLM 3.0 — enterprise control dashboard. Phases 1-2 of 4 complete, awaiting approval.**
+377 Python tests + 60 frontend tests pass, 0 compiler warnings, ruff clean, `tsc -b` clean.
+Every UI phase is verified by driving the real app in headless Chrome, not by inspection.
+
+The 3.0 brief (fourth section of `doc/prompt.md`) asks for a PyTorch core engine; that was
+**declined and confirmed with the user** — rule #1 stands, the C++ engine already exposes
+everything the dashboard needs. Tailwind/Recharts likewise declined in favour of the existing
+`styles.css` token system and Chart.js. "GPU VRAM" is reported as whatever the host actually
+has, via `csllm/resources.py`.
 
 ## Completed
 
@@ -38,17 +44,48 @@ Every UI phase was verified by driving the real app in headless Chrome, not by i
 - [x] **Verified live over CDP:** 16 tokens / 25.9 KB binary attention; a 300-step training run
       started from the browser (loss 6.24 → 3.84, best val 3.8373, exit 0, ~102k tok/s).
 
+**CSLLM 3.0 Phase 1 — Model configurator & parameter calculator**
+
+- [x] `csllm/params.py`: `calculate_model_params` → param breakdown (embedding/attention/ffn/
+      norms) + train-memory breakdown (weights/grads/AdamW/activations), swept against the C++
+      `ModelConfig::num_params()`.
+- [x] `csllm/resources.py`: `probe_device` — NVIDIA VRAM via `nvidia-smi`, else unified
+      memory / RAM via sysconf + `/proc` or `ps`. No new dependencies.
+- [x] Side-effect-free `POST /configure_model/estimate`; `ArchitectureParams` shared by the
+      estimate and configure requests so preview and submission cannot drift.
+- [x] `ConfiguratorPanel`: sliders, live count, stacked memory bar, headroom vs. this host,
+      version list, create / create+initialize.
+- [x] **Verified live over CDP:** 12,194,688 at the shakespeare preset; 6→12 layers updates to
+      22,816,128; only legal head counts offered; version creation round-trips.
+
+**CSLLM 3.0 Phase 2 — Training manager & WebSocket telemetry**
+
+- [x] `TrainingSupervisor` supervises a job *kind* (`JOBS`: `train` | `prepare`); the pump,
+      broadcast, history and back-pressure logic is shared rather than duplicated.
+- [x] `train/train_tokenizer.py --dataset` reads through the plugin registry (so `.jsonl`/`.csv`
+      work) and emits staged progress; `train/emit.py` holds the shared emitter.
+- [x] `POST /datasets/{name}/prepare`, `GET /prepared`, `POST /train/{pause,resume}`.
+- [x] Trainer emits `epoch` + `rss_bytes`; host memory facts ride the `start` row.
+- [x] `DatasetBrowser` tab; `TrainingDashboard` steps slider, prepared-data selector,
+      pause/resume, epoch + memory readouts and sparkline.
+- [x] **Verified live over CDP:** prepared `speeches.jsonl` (901 docs) → trained on it → paused
+      (step frozen at 600 across 2 s) → resumed (600 → 994) → stopped (SIGTERM, ~2 s).
+
 ## In Progress
 
-Nothing. The project meets every goal in `prd.md` and every deliverable in `doc/prompt.md`.
+**Awaiting approval to start 3.0 Phase 3** (unified explainable playground + attention
+matrix heat-map).
 
 ## Next Up
 
-No committed work. Highest-value items if it is picked up again:
+1. **3.0 Phase 3** — unified explainable playground + attention matrix heat-map.
+2. **3.0 Phase 4** — zip download, standalone deployment package, export modal.
 
-1. **Regularization (dropout)** — the train/val gap is +1.26; the largest quality win available.
-2. **Continuous/batched decoding** — would lift concurrency from ~1.95x toward linear.
-3. **Gradient checkpointing** — the ~1.5 GB activation arena at B=8/T=256 caps batch size.
+Carried over from 2.0:
+
+- **Regularization (dropout)** — the train/val gap is +1.26; the largest quality win available.
+- **Continuous/batched decoding** — would lift concurrency from ~1.95x toward linear.
+- **Gradient checkpointing** — the ~1.5 GB activation arena at B=8/T=256 caps batch size.
 
 ## Backlog
 

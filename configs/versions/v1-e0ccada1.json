@@ -1,0 +1,19 @@
+{
+ "version_id": "v1-e0ccada1",
+ "index": 1,
+ "config": {
+  "vocab_size": 4096,
+  "n_layer": 6,
+  "n_head": 6,
+  "n_embd": 384,
+  "block_size": 256,
+  "ffn_hidden": 1024,
+  "rope_theta": 10000.0,
+  "norm_eps": 9.999999747378752e-06
+ },
+ "num_params": 12194688,
+ "activation_bytes": 1504727040,
+ "created_at": 1784662415.597086,
+ "path": "configs/versions/v1-e0ccada1.json",
+ "note": ""
+}

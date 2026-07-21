@@ -8,12 +8,36 @@ byte-level BPE tokenizer and training loop, a **FastAPI** gateway with SSE and W
 telemetry, and a **React + TypeScript** diagnostics UI with a 3D attention view.
 Llama-style: RoPE + RMSNorm + SwiGLU, pre-norm residuals, weight-tied `lm_head`.
 
-**325 Python tests + 39 frontend tests pass, 0 compiler warnings, ruff clean, tsc clean.**
+**377 Python tests + 60 frontend tests pass, 0 compiler warnings, ruff clean, tsc clean.**
 
 ## Recent Changes
 
 *(reverse-chronological)*
 
+- **2026-07-22 — 3.0 Phase 2: training manager & dataset wiring.**
+  `TrainingSupervisor` now supervises a *job kind* (`JOBS`: `train` | `prepare`) rather than
+  assuming the trainer; `train/train_tokenizer.py` gained `--dataset` (read via the plugin
+  registry, so `.jsonl`/`.csv` work) plus `--emit-jsonl`, and `train/emit.py` holds the emitter
+  both entrypoints share. New `POST /datasets/{name}/prepare`, `GET /prepared`,
+  `POST /train/{pause,resume}` (SIGSTOP/SIGCONT). Trainer emits `epoch` + `rss_bytes` per
+  throughput row and host memory facts in `start`. New `DatasetBrowser` tab; `TrainingDashboard`
+  gained a steps slider, a prepared-data selector fed by `GET /prepared`, pause/resume, and an
+  epoch + memory readout. `applyTrainEvent` extracted from `useTrainingStream` so the reducer is
+  testable. 27 backend + 11 frontend tests added.
+  **Verified live over CDP:** prepared `speeches.jsonl` (901 docs) → trained on it → paused
+  (step frozen at 600 across 2 s) → resumed (600 → 994) → stopped (SIGTERM, ~2 s).
+
+- **2026-07-22 — 3.0 Phase 1: model configurator & parameter calculator.**
+  New `csllm/params.py` (`calculate_model_params` → param breakdown + train-memory breakdown)
+  and `csllm/resources.py` (`probe_device` — reports VRAM on an NVIDIA host, unified memory on
+  Apple Silicon, RAM elsewhere; no new dependencies). New side-effect-free
+  `POST /configure_model/estimate` behind the sliders; `ArchitectureParams` extracted as the
+  shared base of `ConfigureModelRequest` and `EstimateRequest`. New `ConfiguratorPanel` tab with
+  live parameter count, stacked memory bar, headroom check, and version creation.
+  25 backend + 10 frontend tests added.
+  **Verified by driving the real app over CDP:** shakespeare preset reads 12,194,688; dragging
+  layers 6→12 updates live to 22,816,128; head options offered for d_model=384 are
+  1,2,3,4,6,8,12,16,24,32,48,64 (every invalid divisor excluded); version creation round-trips.
 - **2026-07-22 — 2.0 Phase 4: attention animation & training dashboard.**
   `WS /ws/inspect` streams a JSON frame then a **binary Float32Array** attention frame per token,
   with layer/head filtering applied before serialisation. `TransformerGraph` (React Three Fiber,
@@ -41,6 +65,50 @@ Llama-style: RoPE + RMSNorm + SwiGLU, pre-norm residuals, weight-tied `lm_head`.
   launch `--headless --remote-debugging-port=9222 <url>`, attach to the page target that
   already has the URL (navigating an `about:blank` target silently screenshots blank), then
   `Runtime.evaluate` to click and `Page.captureScreenshot` with `captureBeyondViewport`.
+  **After `make web-build`, reload with `Page.reload(ignoreCache=True)`** — a plain
+  `Page.navigate` serves the cached bundle and you verify the code you just replaced.
+  To move a React-controlled slider, call the native `HTMLInputElement.value` setter and then
+  dispatch `new Event('input', {bubbles:true})`; assigning `.value` alone does not notify React.
+- **Port 8000 is not always free on this machine** — use another port (8010) for verification
+  runs rather than assuming `make serve` bound successfully.
+
+**Dashboard (3.0)**
+
+- **`csllm/params.py` must agree with `ModelConfig::num_params()`** (`core/src/model.cpp`).
+  Two traps: `lm_head` is **weight-tied** to `tok_emb` so the embedding counts ONCE (double
+  counting overstates the 12M config by 1.57M), and SwiGLU's FFN has **three** matrices
+  (gate, up, down), not two. `tests/test_params.py` sweeps configs rather than spot-checking.
+- **Activations dominate**: at B=8/T=256 the 12M config needs ~1.5 GB of arena against 49 MB of
+  weights — ~88% of the training footprint. Any memory bar must render that segment in a visible
+  colour; `--gridline` is a hairline token and made the largest slice look like empty space.
+- **This dev machine has 8 GB**, so the headroom readout is meaningful, not decorative.
+- **Memory probing lives in `csllm/`, not `gateway/`** — `train/train.py` consumes it and the
+  trainer must never import the gateway (the gateway reads its stdout, not the reverse).
+- **Head-count options are derived from `n_embd`** rather than validated after the fact: a head
+  count needs `n_embd % n_head == 0` AND an even `head_dim`, so e.g. 128 is a clean divisor of
+  384 that the engine still rejects. Offering only legal values removes the confusing failure.
+- **UI presets must mirror `configs/*.json`** — `ffn_hidden` drifted (192 vs 128) during Phase 1
+  and quoted a parameter count no config file could produce; a vitest now imports both JSONs.
+- **Prepared datasets go to `data/prepared/<dataset>/`, keyed by DATASET not config.** Deriving
+  the path from the config put `configs/debug.json` at `data/debug` — exactly where the shipped
+  debug corpus lives — and a prepare destroyed `data/debug/*.bin` during verification. They were
+  restored by re-binarizing `data/tinyshakespeare.txt` with the untouched `data/tokenizer-debug`
+  (517,810 / 57,535 tokens, matching the original run). `PrepareRequest.out`/`data_dir` now
+  default to None and are filled in server-side.
+- **`SIGSTOP` then `SIGTERM` hangs.** A stopped process never reaches its signal handler, so
+  `stop()` must `SIGCONT` first or it waits out the full 10 s timeout and needs `SIGKILL` — the
+  UI's Stop button appears dead for ten seconds.
+- **A failed measurement must not be plotted as 0.** `current_rss()` shells out to `ps` on macOS
+  and returned 0 once under a saturated training loop; charted, it drew a cliff to zero. The
+  trainer now omits `rss_bytes` when the probe fails, and the reducer drops non-positive samples.
+- **`vocab.json` is `{vocab_size, pattern, special_tokens, tokens}`** — read the `vocab_size`
+  field; `len()` of the file reports 4 for every tokenizer ever written.
+- **A CDP UI check must outlast the thing it is checking.** The 300-step debug run finishes in
+  ~4 s at ~100k tok/s, so the first pause/resume verification found the buttons already disabled
+  and reported a false failure. Drive a run long enough to still be alive when you click.
+- **`datasets/raw/` ships empty** (`.gitkeep` only). `shakespeare-sample.txt` and
+  `speeches.jsonl` were added as fixtures so the browser and prepare path have something to
+  read; they are slices of `data/tinyshakespeare.txt` and safe to delete.
 
 **Engine**
 

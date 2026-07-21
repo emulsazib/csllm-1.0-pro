@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException, Request, status
 from ..schemas import (
     ConfigureModelRequest,
     ConfigVersionResponse,
+    EstimateRequest,
+    EstimateResponse,
     ExportRequest,
     ExportResponse,
 )
@@ -20,6 +22,38 @@ router = APIRouter(tags=["config"])
 def get_store(request: Request) -> ConfigStore:
     store = getattr(request.app.state, "config_store", None)
     return store or ConfigStore()
+
+
+@router.post("/configure_model/estimate", response_model=EstimateResponse)
+async def estimate_model(req: EstimateRequest) -> EstimateResponse:
+    """Cost an architecture without building or persisting anything.
+
+    Deliberately side-effect free. The configurator calls this on every slider
+    movement; routing that through ``/configure_model`` would bury the real
+    versions under thousands of throwaway files.
+    """
+    from csllm.params import calculate_model_params
+    from csllm.resources import probe_device
+
+    fields = req.model_dump(exclude={"batch_size", "seq_len"})
+    try:
+        breakdown, memory = calculate_model_params(fields, req.batch_size, req.seq_len)
+    except RuntimeError as exc:  # csllm::Error from ModelConfig::validate()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+
+    device = probe_device()
+    return EstimateResponse(
+        config=fields,
+        num_params=breakdown.total,
+        params=breakdown.to_dict(),
+        memory=memory.to_dict(),
+        device=device.to_dict(),
+        # total_bytes is 0 when the host could not be probed; do not claim a
+        # config does not fit just because we failed to measure the machine.
+        fits=device.total_bytes == 0 or memory.total <= device.total_bytes,
+    )
 
 
 @router.post("/configure_model", response_model=ConfigVersionResponse)

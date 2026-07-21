@@ -1,10 +1,17 @@
-"""Supervise a training subprocess and fan its output out to WebSocket clients.
+"""Supervise a long-running job subprocess and fan its output out to WebSocket
+clients.
+
+Two job kinds share this machinery (see ``JOBS``): ``train`` runs the training
+loop, ``prepare`` trains a BPE tokenizer and binarizes a dataset. They differ
+only in which module is spawned and which flags it takes — the pump, broadcast,
+history and back-pressure logic is identical, and duplicating it for the sake of
+a second entrypoint would mean two places to get back-pressure wrong.
 
 Design notes, in the order they matter:
 
-* **The trainer stays standalone.** It gains only ``--emit-jsonl``; the gateway
-  reads its stdout. Nothing in the training loop knows the gateway exists, so
-  training still works with the gateway down.
+* **The subprocess stays standalone.** It gains only ``--emit-jsonl``; the
+  gateway reads its stdout. Nothing in the training loop knows the gateway
+  exists, so training still works with the gateway down.
 * **A slow client must never stall training.** Each subscriber gets a bounded
   ``asyncio.Queue``; when it fills, that subscriber's oldest events are dropped
   and a ``dropped`` counter is surfaced. Back-pressuring the pipe instead would
@@ -22,6 +29,7 @@ import asyncio
 import contextlib
 import json
 import shlex
+import signal
 import sys
 import time
 import uuid
@@ -31,9 +39,48 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-__all__ = ["RunAlreadyActive", "RunHandle", "TrainingSupervisor"]
+__all__ = ["JOBS", "RunAlreadyActive", "RunHandle", "TrainingSupervisor"]
 
 RUNS_DIR = Path("runs")
+
+#: Job kind -> (module to run, option name -> CLI flag).
+#:
+#: Both entrypoints accept ``--emit-jsonl``/``--run-id``, which is the entire
+#: contract the supervisor depends on. Adding a kind means adding a row here,
+#: not another supervisor.
+JOBS: dict[str, tuple[str, dict[str, str]]] = {
+    "train": (
+        "train.train",
+        {
+            "config": "--config",
+            "steps": "--steps",
+            "batch_size": "--batch-size",
+            "lr": "--lr",
+            "min_lr": "--min-lr",
+            "warmup": "--warmup",
+            "weight_decay": "--weight-decay",
+            "grad_clip": "--grad-clip",
+            "eval_every": "--eval-every",
+            "eval_iters": "--eval-iters",
+            "sample_every": "--sample-every",
+            "seed": "--seed",
+            "out": "--out",
+            "data_dir": "--data-dir",
+            "tokenizer_dir": "--tokenizer-dir",
+        },
+    ),
+    "prepare": (
+        "train.train_tokenizer",
+        {
+            "config": "--config",
+            "dataset": "--dataset",
+            "corpus": "--corpus",
+            "out": "--out",
+            "data_dir": "--data-dir",
+            "val_fraction": "--val-fraction",
+        },
+    ),
+}
 
 #: Per-subscriber queue depth. Deep enough to absorb a burst of step events,
 #: shallow enough that a dead client cannot pin much memory.
@@ -52,6 +99,7 @@ class RunHandle:
     run_id: str
     command: list[str]
     started_at: float
+    kind: str = "train"
     process: asyncio.subprocess.Process | None = None
     returncode: int | None = None
     finished_at: float | None = None
@@ -60,6 +108,8 @@ class RunHandle:
     last_loss: float | None = None
     best_val: float | None = None
     stopping: bool = False
+    #: SIGSTOPped. Still `running` — the process exists and holds its memory.
+    paused: bool = False
 
     @property
     def running(self) -> bool:
@@ -70,7 +120,9 @@ class RunHandle:
         progress = (self.last_step / self.total_steps) if self.total_steps else 0.0
         return {
             "run_id": self.run_id,
+            "kind": self.kind,
             "running": self.running,
+            "paused": self.paused,
             "command": " ".join(shlex.quote(c) for c in self.command),
             "started_at": self.started_at,
             "elapsed_s": elapsed,
@@ -80,6 +132,7 @@ class RunHandle:
             "progress": round(progress, 4),
             "last_loss": self.last_loss,
             "best_val": self.best_val,
+            "pid": self.process.pid if self.process is not None else None,
         }
 
 
@@ -111,7 +164,13 @@ class TrainingSupervisor:
 
     def status(self) -> dict[str, Any]:
         if self._run is None:
-            return {"run_id": None, "running": False, "subscribers": len(self._subscribers)}
+            return {
+                "run_id": None,
+                "kind": None,
+                "running": False,
+                "paused": False,
+                "subscribers": len(self._subscribers),
+            }
         return {**self._run.status(), "subscribers": len(self._subscribers)}
 
     # ── lifecycle ────────────────────────────────────────────────────────────
@@ -122,7 +181,11 @@ class TrainingSupervisor:
                 f"run {self._run.run_id} is still active; stop it before starting another"
             )
 
-        run_id = run_id or f"run-{uuid.uuid4().hex[:8]}"
+        kind = options.get("kind", "train")
+        if kind not in JOBS:
+            raise ValueError(f"unknown job kind {kind!r}; expected one of {sorted(JOBS)}")
+
+        run_id = run_id or f"{kind}-{uuid.uuid4().hex[:8]}"
         run_dir = self.runs_dir / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -136,6 +199,7 @@ class TrainingSupervisor:
         )
         handle = RunHandle(
             run_id=run_id,
+            kind=kind,
             command=command,
             started_at=time.time(),
             process=process,
@@ -147,31 +211,42 @@ class TrainingSupervisor:
         return handle
 
     def _build_command(self, options: dict[str, Any], run_id: str) -> list[str]:
-        cmd = [self.python, "-u", "-m", "train.train", "--emit-jsonl", "--run-id", run_id]
-        flags = {
-            "config": "--config",
-            "steps": "--steps",
-            "batch_size": "--batch-size",
-            "lr": "--lr",
-            "min_lr": "--min-lr",
-            "warmup": "--warmup",
-            "weight_decay": "--weight-decay",
-            "grad_clip": "--grad-clip",
-            "eval_every": "--eval-every",
-            "eval_iters": "--eval-iters",
-            "sample_every": "--sample-every",
-            "seed": "--seed",
-            "out": "--out",
-            "data_dir": "--data-dir",
-            "tokenizer_dir": "--tokenizer-dir",
-        }
+        module, flags = JOBS[options.get("kind", "train")]
+        cmd = [self.python, "-u", "-m", module, "--emit-jsonl", "--run-id", run_id]
         for key, flag in flags.items():
             value = options.get(key)
             if value is not None:
                 cmd += [flag, str(value)]
-        if options.get("resume"):
+        if options.get("resume") and "resume" not in flags:
             cmd.append("--resume")
         return cmd
+
+    # ── pause / resume ───────────────────────────────────────────────────────
+
+    async def pause(self) -> bool:
+        """SIGSTOP the job. Returns False if there is nothing running to pause.
+
+        SIGSTOP rather than checkpoint-and-restart: the run keeps its arena, its
+        Adam moments and its step counter, so resuming is exact and free. The
+        cost is that the process still holds its memory while paused, which is
+        the right trade for "let me look at the loss curve for a second".
+        """
+        run = self._run
+        if run is None or not run.running or run.process is None or run.paused:
+            return False
+        run.process.send_signal(signal.SIGSTOP)
+        run.paused = True
+        self._broadcast({"type": "paused", "run_id": run.run_id, "step": run.last_step})
+        return True
+
+    async def resume(self) -> bool:
+        run = self._run
+        if run is None or not run.running or run.process is None or not run.paused:
+            return False
+        run.process.send_signal(signal.SIGCONT)
+        run.paused = False
+        self._broadcast({"type": "resumed", "run_id": run.run_id, "step": run.last_step})
+        return True
 
     async def stop(self) -> bool:
         """Terminate the active run. Returns False if there was nothing to stop."""
@@ -179,6 +254,11 @@ class TrainingSupervisor:
         if run is None or not run.running or run.process is None:
             return False
         run.stopping = True
+        # A SIGSTOPped process never reaches its SIGTERM handler, so terminating
+        # a paused run would hang until the 10s timeout and then need SIGKILL.
+        if run.paused:
+            run.process.send_signal(signal.SIGCONT)
+            run.paused = False
         run.process.terminate()
         try:
             await asyncio.wait_for(run.process.wait(), timeout=10)

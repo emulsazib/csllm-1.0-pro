@@ -124,5 +124,17 @@ export interface TrainEvent {
   tokens_per_s?: number;
   ms_per_step?: number;
   count?: number;
+  /** "train" | "prepare" — which job produced this event. */
+  kind?: string | null;
+  paused?: boolean;
+  /** Fractional passes over the corpus, from the trainer's `throughput` rows. */
+  epoch?: number;
+  /** Trainer RSS. Labelled by `memory_label` from the `start` row. */
+  rss_bytes?: number;
+  memory_label?: string;
+  memory_total_bytes?: number;
+  device?: string;
+  /** Prepare-job progress: "bpe" | "roundtrip" | "binarize" | "complete". */
+  stage?: string;
   [key: string]: unknown;
 }

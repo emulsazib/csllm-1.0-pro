@@ -2,14 +2,18 @@ import { useEffect, useState } from "react";
 import { api } from "./api/client";
 import type { Health } from "./api/types";
 import { AttentionPanel } from "./components/AttentionPanel";
+import { ConfiguratorPanel } from "./components/ConfiguratorPanel";
+import { DatasetBrowser } from "./components/DatasetBrowser";
 import { ProbabilityPanel } from "./components/ProbabilityPanel";
 import { TokenizerPanel } from "./components/TokenizerPanel";
 import { TrainingDashboard } from "./components/TrainingDashboard";
 import { currentMode, type Mode } from "./theme";
 
-type TabId = "tokens" | "sampling" | "attention" | "training";
+type TabId = "configure" | "datasets" | "tokens" | "sampling" | "attention" | "training";
 
 const TABS: { id: TabId; label: string; ready: boolean }[] = [
+  { id: "configure", label: "Configure", ready: true },
+  { id: "datasets", label: "Datasets", ready: true },
   { id: "tokens", label: "Tokens & Embeddings", ready: true },
   { id: "sampling", label: "Sampling", ready: true },
   { id: "attention", label: "Attention", ready: true },
@@ -108,6 +112,8 @@ export default function App() {
         ))}
       </nav>
 
+      {tab === "configure" && <ConfiguratorPanel />}
+      {tab === "datasets" && <DatasetBrowser />}
       {tab === "tokens" && <TokenizerPanel />}
       {tab === "sampling" && <ProbabilityPanel />}
       {tab === "attention" && <AttentionPanel />}

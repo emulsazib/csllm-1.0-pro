@@ -27,26 +27,10 @@ import numpy as np
 import csllm
 from csllm import _csllm_core as core
 from csllm.data import DATA_DIR, TOKENIZER_DIR, get_batch, load_split
+from csllm.resources import current_rss, probe_device
 from csllm.tokenizer import BPETokenizer
 
-
-def make_emitter(enabled: bool, run_id: str):
-    """Return an ``emit(kind, **fields)`` that writes one JSON object per line.
-
-    The gateway's TrainingSupervisor reads stdout and treats parseable lines as
-    structured metrics and everything else as log text, so the human-readable
-    prints below stay exactly as they are.
-    """
-
-    def emit(kind: str, **fields) -> None:
-        if not enabled:
-            return
-        payload = {"type": kind, "run_id": run_id, "t": time.time(), **fields}
-        # flush: the supervisor reads this pipe live, and block buffering would
-        # stall the dashboard until the run ended.
-        print(json.dumps(payload), flush=True)
-
-    return emit
+from .emit import make_emitter
 
 
 def evaluate(model, data, batch_size, block_size, iters, rng) -> float:
@@ -149,6 +133,10 @@ def main() -> None:
     t_start = time.time()
     t_window = time.time()
 
+    # Static host facts go in `start`; only the varying RSS rides along with
+    # `throughput`, so probing costs one subprocess per run rather than per step.
+    device = probe_device()
+
     emit(
         "start",
         steps=args.steps,
@@ -162,6 +150,10 @@ def main() -> None:
         lr=args.lr,
         min_lr=args.min_lr,
         warmup=args.warmup,
+        arena_bytes=core.estimate_activation_bytes(cfg, args.batch_size, cfg.block_size),
+        device=device.device,
+        memory_label=device.memory_label,
+        memory_total_bytes=device.total_bytes,
     )
 
     for step in range(start_step, args.steps):
@@ -190,7 +182,21 @@ def main() -> None:
                 f"{tokens_per_step / dt:,.0f} tok/s",
                 flush=True,
             )
-            emit("throughput", step=step, ms_per_step=dt * 1000, tokens_per_s=tokens_per_step / dt)
+            metrics = {
+                "step": step,
+                "ms_per_step": dt * 1000,
+                "tokens_per_s": tokens_per_step / dt,
+                # Tokens consumed so far over the corpus size: fractional passes
+                # through the data, which is what "epoch" means for a sampled
+                # (rather than shuffled-and-exhausted) training loop.
+                "epoch": (step + 1) * tokens_per_step / max(1, len(train_data)),
+            }
+            # current_rss() returns 0 when the probe fails — on macOS it shells
+            # out to `ps`, which can time out under a saturated training loop.
+            # 0 means "not measured", so omit it rather than charting a cliff.
+            if (rss := current_rss()) > 0:
+                metrics["rss_bytes"] = rss
+            emit("throughput", **metrics)
             t_window = time.time()
 
         if step > 0 and step % args.eval_every == 0:

@@ -65,4 +65,4 @@ mindmap
 | rules | ok | Hard rules: no PyTorch/autograd libraries ever, no op ships without a NumPy oracle and a double-precision gradcheck, phase gates require explicit user approval. |
 | memory | ok | Running knowledge base: CSLLM 1.0 and 2.0 both complete — C++ engine, trained model, gateway, and full React diagnostics UI; all environment, engine, training, serving and frontend gotchas. |
 
-_Updated: 2026-07-21T18:38:51.912Z_
+_Updated: 2026-07-21T20:01:39.606Z_

@@ -12,12 +12,16 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 __all__ = [
+    "ArchitectureParams",
     "CandidateToken",
     "ConfigVersionResponse",
     "ConfigureModelRequest",
+    "DeviceResponse",
     "EmbeddingsRequest",
     "EmbeddingsResponse",
     "ErrorResponse",
+    "EstimateRequest",
+    "EstimateResponse",
     "ExportRequest",
     "ExportResponse",
     "GenerateRequest",
@@ -26,6 +30,7 @@ __all__ = [
     "InspectRequest",
     "InspectResponse",
     "InspectStreamRequest",
+    "PrepareRequest",
     "StreamChunk",
     "TokenInfo",
     "TokenizeRequest",
@@ -88,12 +93,15 @@ class ErrorResponse(BaseModel):
 # ── configuration ────────────────────────────────────────────────────────────
 
 
-class ConfigureModelRequest(BaseModel):
-    """Hyperparameters for a new model version.
+class ArchitectureParams(BaseModel):
+    """The hyperparameters that define a model architecture.
 
     Bounds here are sanity limits only. The real invariants — n_embd divisible by
     n_head, and an EVEN head_dim for RoPE's pairwise rotation — are enforced by
     the C++ ``ModelConfig.validate()`` so Python and C++ cannot disagree.
+
+    Shared by ``/configure_model`` and ``/configure_model/estimate`` so the form
+    the UI submits and the one it previews cannot drift apart.
     """
 
     model_config = {"extra": "forbid"}
@@ -107,12 +115,50 @@ class ConfigureModelRequest(BaseModel):
     rope_theta: float = Field(10000.0, gt=0.0)
     norm_eps: float = Field(1e-5, gt=0.0, le=1.0)
 
+
+class ConfigureModelRequest(ArchitectureParams):
+    """Hyperparameters for a new model version."""
+
     note: str = Field("", max_length=500)
     #  Only affects the reported activation estimate, not the stored config.
     batch_size: int = Field(8, ge=1, le=512)
     #  When set, initialize a fresh model at this config and save a checkpoint.
     initialize: bool = False
     out: str | None = None
+
+
+class EstimateRequest(ArchitectureParams):
+    """Dry run: cost this architecture without persisting anything.
+
+    Called on every slider movement, so it must stay a pure calculation — no
+    version file, no model allocation.
+    """
+
+    batch_size: int = Field(8, ge=1, le=512)
+    #: Training sequence length. Defaults to block_size (the worst case).
+    seq_len: int | None = Field(None, ge=1, le=8192)
+
+
+class DeviceResponse(BaseModel):
+    kind: str
+    device: str
+    #: "VRAM" | "Unified memory" | "RAM" — depends on the host, not hard-coded.
+    memory_label: str
+    total_bytes: int
+    used_bytes: int
+    source: str
+
+
+class EstimateResponse(BaseModel):
+    config: dict
+    num_params: int
+    #: {embedding, attention, ffn, norms, total}
+    params: dict[str, int]
+    #: {params, gradients, optimizer, activations, total} in bytes.
+    memory: dict[str, int]
+    device: DeviceResponse
+    #: False when the training footprint exceeds this host's memory.
+    fits: bool
 
 
 class ConfigVersionResponse(BaseModel):
@@ -151,9 +197,32 @@ class TrainStartRequest(BaseModel):
     resume: bool = False
 
 
+class PrepareRequest(BaseModel):
+    """Train a tokenizer on a dataset and binarize it.
+
+    ``vocab_size`` is taken from the config rather than passed here — the model's
+    embedding table is sized from the same file, and letting the two disagree
+    produces a tokenizer the model cannot load.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    config: str = "configs/shakespeare.json"
+    #: Both default to ``data/prepared/<dataset>/`` when omitted. They are NOT
+    #: defaulted to ``data/`` — that holds the checked-in corpus, and a prepare
+    #: pointed there would overwrite it.
+    out: str | None = None
+    data_dir: str | None = None
+    val_fraction: float = Field(0.1, gt=0.0, lt=1.0)
+
+
 class TrainStatusResponse(BaseModel):
     run_id: str | None = None
+    #: "train" | "prepare" | None when idle.
+    kind: str | None = None
     running: bool = False
+    #: SIGSTOPped: still resident, not consuming CPU.
+    paused: bool = False
     step: int = 0
     total_steps: int = 0
     progress: float = 0.0
@@ -163,6 +232,7 @@ class TrainStatusResponse(BaseModel):
     returncode: int | None = None
     command: str = ""
     subscribers: int = 0
+    pid: int | None = None
 
 
 # ── export ───────────────────────────────────────────────────────────────────

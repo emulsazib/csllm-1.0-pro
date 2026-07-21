@@ -9,6 +9,7 @@ refuse comes back as a 422 rather than crashing at build time.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -209,6 +210,75 @@ async def test_unknown_config_version_is_404(client):
         assert (await c.get("/configs/v42-nope")).status_code == 404
 
 
+# ── estimate endpoint ────────────────────────────────────────────────────────
+
+
+async def test_estimate_matches_the_engine(client):
+    async with client as c:
+        body = (await c.post("/configure_model/estimate", json=BASE)).json()
+    assert body["num_params"] == core_num_params(BASE)
+    params = body["params"]
+    assert params["embedding"] + params["attention"] + params["ffn"] + params["norms"] == (
+        body["num_params"]
+    )
+    assert body["memory"]["total"] > body["memory"]["params"] > 0
+    assert body["device"]["memory_label"] in {"VRAM", "Unified memory", "RAM"}
+    assert body["fits"] is True
+
+
+async def test_estimate_writes_no_version(client):
+    """The sliders call this on every movement; it must not persist anything."""
+    async with client as c:
+        for n_layer in range(1, 6):
+            await c.post("/configure_model/estimate", json={**BASE, "n_layer": n_layer})
+        assert (await c.get("/configs")).json() == []
+
+
+async def test_estimate_reports_a_config_that_does_not_fit(client):
+    """A 64-layer 4096-wide model at batch 512 exceeds any single host."""
+    huge = {
+        **BASE,
+        "n_layer": 64,
+        "n_embd": 4096,
+        "n_head": 32,
+        "ffn_hidden": 16384,
+        "block_size": 4096,
+        "vocab_size": 65536,
+    }
+    async with client as c:
+        body = (await c.post("/configure_model/estimate", json={**huge, "batch_size": 512})).json()
+    assert body["fits"] is False
+
+
+async def test_estimate_rejects_invalid_architecture(client):
+    async with client as c:
+        odd = await c.post("/configure_model/estimate", json={**BASE, "n_embd": 10, "n_head": 2})
+        indivisible = await c.post(
+            "/configure_model/estimate", json={**BASE, "n_embd": 64, "n_head": 5}
+        )
+    assert odd.status_code == 422 and "even for RoPE" in odd.json()["detail"]
+    assert indivisible.status_code == 422 and "divisible" in indivisible.json()["detail"]
+
+
+async def test_estimate_seq_len_shortens_activations(client):
+    async with client as c:
+        full = (await c.post("/configure_model/estimate", json=BASE)).json()
+        short = (
+            await c.post(
+                "/configure_model/estimate",
+                json={**BASE, "seq_len": BASE["block_size"] // 2},
+            )
+        ).json()
+    assert short["memory"]["activations"] < full["memory"]["activations"]
+    assert short["num_params"] == full["num_params"]  # seq_len is not architecture
+
+
+def core_num_params(config: dict) -> int:
+    from csllm.config import config_from_dict
+
+    return config_from_dict(config).num_params()
+
+
 # ── datasets routes ──────────────────────────────────────────────────────────
 
 
@@ -226,12 +296,161 @@ async def test_dataset_path_traversal_is_rejected(client):
     assert response.status_code == 404
 
 
+async def test_prepare_on_a_missing_dataset_is_404(client):
+    """Path validation runs before the supervisor lookup, so this is 404 not 503."""
+    async with client as c:
+        assert (await c.post("/datasets/nope.txt/prepare", json={})).status_code == 404
+
+
+@pytest.mark.parametrize("name", ["../pyproject.toml", "../../etc/passwd", "..", "sub/dir.txt"])
+def test_resolve_refuses_to_escape_the_raw_directory(name):
+    """Tested directly, not through the router.
+
+    An HTTP client normalises `..` out of the path before the request is sent,
+    so a route-level traversal test never reaches this guard and passes for the
+    wrong reason.
+    """
+    from fastapi import HTTPException
+
+    from gateway.routes.datasets import _resolve
+
+    with pytest.raises(HTTPException) as excinfo:
+        _resolve(name)
+    assert excinfo.value.status_code == 404
+
+
+def test_resolve_refuses_a_symlink_pointing_outside(tmp_path, monkeypatch):
+    """A link's parent is raw/ wherever it points — resolve the file itself."""
+    from fastapi import HTTPException
+
+    import datasets as ds_module
+    from gateway.routes import datasets as routes
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    secret = tmp_path / "secret.txt"
+    secret.write_text("not yours")
+    (raw / "innocent.txt").symlink_to(secret)
+
+    monkeypatch.setattr(ds_module, "RAW_DIR", raw)
+    monkeypatch.setattr(routes.ds, "RAW_DIR", raw)
+
+    with pytest.raises(HTTPException) as excinfo:
+        routes._resolve("innocent.txt")
+    assert excinfo.value.status_code == 404
+
+
+def test_resolve_accepts_a_real_dataset(tmp_path, monkeypatch):
+    from gateway.routes import datasets as routes
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "corpus.txt").write_text("hello")
+    monkeypatch.setattr(routes.ds, "RAW_DIR", raw)
+
+    assert routes._resolve("corpus.txt").name == "corpus.txt"
+
+
+# ── prepare must not clobber the checked-in corpora ──────────────────────────
+
+
+def test_prepared_output_is_isolated_per_dataset():
+    """Regression: this destroyed data/debug/*.bin during Phase 2 verification.
+
+    Deriving the output directory from the CONFIG put `configs/debug.json` at
+    `data/debug`, which is exactly where the shipped debug corpus lives. Keying
+    on the dataset instead keeps prepares out of `data/` entirely.
+    """
+    from gateway.routes.datasets import PREPARED_DIR, prepared_dir_for
+
+    for dataset in ["speeches.jsonl", "shakespeare-sample.txt", "notes.csv"]:
+        target = prepared_dir_for(dataset)
+        assert PREPARED_DIR in target.parents
+        # The two directories holding checked-in splits.
+        assert target != Path("data")
+        assert target != Path("data/debug")
+
+    assert prepared_dir_for("a.txt") != prepared_dir_for("b.txt")
+
+
+def test_prepare_defaults_never_point_at_the_shipped_corpus():
+    """An omitted out/data_dir must resolve under data/prepared/, not data/."""
+    from gateway.schemas import PrepareRequest
+
+    req = PrepareRequest()
+    assert req.out is None and req.data_dir is None
+
+
+async def test_prepared_listing_reports_real_token_counts(client, tmp_path, monkeypatch):
+    """vocab_size comes from the field in vocab.json, not from counting keys.
+
+    The file is {vocab_size, pattern, special_tokens, tokens} — len() of it is 4
+    for every tokenizer ever written.
+    """
+    from gateway.routes import datasets as routes
+
+    prepared = tmp_path / "prepared"
+    directory = prepared / "speeches"
+    (directory / "tokenizer").mkdir(parents=True)
+    # uint16 on disk: 10 tokens train, 4 val.
+    (directory / "train.bin").write_bytes(b"\x00\x01" * 10)
+    (directory / "val.bin").write_bytes(b"\x00\x01" * 4)
+    (directory / "tokenizer" / "vocab.json").write_text(
+        json.dumps({"vocab_size": 512, "pattern": "x", "special_tokens": 0, "tokens": {}})
+    )
+    monkeypatch.setattr(routes, "PREPARED_DIR", prepared)
+
+    async with client as c:
+        body = (await c.get("/prepared")).json()
+
+    assert len(body["prepared"]) == 1
+    entry = body["prepared"][0]
+    assert entry["name"] == "speeches"
+    assert entry["train_tokens"] == 10
+    assert entry["val_tokens"] == 4
+    assert entry["vocab_size"] == 512
+
+
+async def test_prepared_listing_skips_an_interrupted_prepare(client, tmp_path, monkeypatch):
+    """A directory without both splits and a tokenizer is not trainable."""
+    from gateway.routes import datasets as routes
+
+    prepared = tmp_path / "prepared"
+    (prepared / "halfway").mkdir(parents=True)
+    (prepared / "halfway" / "train.bin").write_bytes(b"\x00\x01")  # no val.bin, no tokenizer
+    monkeypatch.setattr(routes, "PREPARED_DIR", prepared)
+
+    async with client as c:
+        assert (await c.get("/prepared")).json()["prepared"] == []
+
+
+async def test_prepare_request_rejects_unknown_fields():
+    from pydantic import ValidationError
+
+    from gateway.schemas import PrepareRequest
+
+    with pytest.raises(ValidationError):
+        PrepareRequest(dataset="oops.txt")  # `dataset` comes from the URL path
+
+
 # ── training routes without a supervisor ─────────────────────────────────────
 
 
-async def test_training_routes_report_unavailable_without_a_supervisor(client):
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/train/status"),
+        ("post", "/train/start"),
+        ("post", "/train/stop"),
+        ("post", "/train/pause"),
+        ("post", "/train/resume"),
+    ],
+)
+async def test_training_routes_report_unavailable_without_a_supervisor(client, method, path):
     async with client as c:
-        assert (await c.get("/train/status")).status_code == 503
+        call = getattr(c, method)
+        response = await (call(path, json={}) if method == "post" else call(path))
+    assert response.status_code == 503
 
 
 # ── export endpoint ──────────────────────────────────────────────────────────

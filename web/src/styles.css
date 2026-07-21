@@ -134,6 +134,14 @@ button.action {
 button.action:hover { filter: brightness(1.06); }
 button.action:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Height is pinned to match a range input: `.controls` bottom-aligns its items,
+   so a taller select pushes its own label out of the row. */
+select {
+  font: inherit; font-size: 12.5px; height: 21px; padding: 0 6px;
+  border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--surface-0); color: var(--text-primary); width: 100%;
+}
+
 button.ghost {
   appearance: none; font: inherit; font-size: 12.5px; padding: 5px 10px;
   border-radius: var(--radius); cursor: pointer; background: transparent;
@@ -148,6 +156,15 @@ button.ghost[aria-pressed="true"] { color: var(--text-primary); border-color: va
 .stat .label { font-size: 11.5px; color: var(--text-secondary); text-transform: none; }
 .stat .value { font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
 .stat .sub { font-size: 11px; color: var(--text-muted); }
+
+/* Stacked memory breakdown. Segments are proportional, so the bar shows at a
+   glance that activations — not weights — are what decides whether a run fits. */
+.mem-bar {
+  display: flex; height: 12px; width: 100%; margin: 14px 0 10px;
+  border-radius: 6px; overflow: hidden; background: var(--surface-0);
+  border: 1px solid var(--border);
+}
+.mem-bar .seg { height: 100%; min-width: 1px; }
 
 /* ── tokens ───────────────────────────────────────────────────────────── */
 

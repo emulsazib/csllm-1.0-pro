@@ -6,11 +6,17 @@
  */
 
 import type {
+  ArchitectureConfig,
+  ConfigVersion,
+  DatasetListing,
   EmbeddingsResponse,
+  EstimateResponse,
   Health,
   InspectResponse,
+  PreparedDataset,
   SamplingSettings,
   TokenizeResponse,
+  TrainStatus,
 } from "./types";
 
 /** Where the API lives, which differs by build mode:
@@ -93,4 +99,53 @@ export const api = {
       { prompt, ...settings, top_n: topN },
       signal,
     ),
+
+  /** Cost an architecture. Pure calculation — persists nothing. */
+  estimate: (
+    config: ArchitectureConfig,
+    batchSize: number,
+    seqLen?: number,
+    signal?: AbortSignal,
+  ) =>
+    post<EstimateResponse>(
+      "/configure_model/estimate",
+      { ...config, batch_size: batchSize, seq_len: seqLen ?? null },
+      signal,
+    ),
+
+  /** Persist a version. `initialize` also writes a freshly initialized checkpoint. */
+  configure: (
+    config: ArchitectureConfig,
+    options: { note?: string; batch_size?: number; initialize?: boolean } = {},
+    signal?: AbortSignal,
+  ) => post<ConfigVersion>("/configure_model", { ...config, ...options }, signal),
+
+  listConfigs: (signal?: AbortSignal) => request<ConfigVersion[]>("/configs", { signal }),
+
+  // ── datasets & training control ────────────────────────────────────────────
+
+  datasets: (signal?: AbortSignal) => request<DatasetListing>("/datasets", { signal }),
+
+  /** Datasets already tokenized + binarized, with the paths a run needs. */
+  prepared: (signal?: AbortSignal) =>
+    request<{ prepared: PreparedDataset[] }>("/prepared", { signal }),
+
+  previewDataset: (name: string, limit = 3, signal?: AbortSignal) =>
+    request<{ name: string; documents: string[] }>(
+      `/datasets/${encodeURIComponent(name)}/preview?limit=${limit}`,
+      { signal },
+    ),
+
+  /** Train a tokenizer on this dataset and binarize it. Streams over WS /ws/train. */
+  prepareDataset: (name: string, options: { config: string }, signal?: AbortSignal) =>
+    post<TrainStatus>(`/datasets/${encodeURIComponent(name)}/prepare`, options, signal),
+
+  trainStatus: (signal?: AbortSignal) => request<TrainStatus>("/train/status", { signal }),
+
+  startTraining: (options: object, signal?: AbortSignal) =>
+    post<TrainStatus>("/train/start", options, signal),
+
+  /** stop | pause | resume — all take no body and return the settled status. */
+  trainControl: (action: "stop" | "pause" | "resume", signal?: AbortSignal) =>
+    post<TrainStatus>(`/train/${action}`, {}, signal),
 };

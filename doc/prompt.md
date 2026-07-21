@@ -104,3 +104,61 @@ Please implement this iteratively. Wait for my approval after completing each ph
 *   **Training Dashboard:** Build a dashboard view that subscribes to the WebSocket endpoint from Phase 2, displaying real-time loss curves and standard output logs.
 
 Start by acknowledging this prompt and outputting the exact directory structure required to accommodate the new React frontend, the `datasets/` plugin system, and the new FastAPI WebSocket routes.
+
+# Dashboard Impove 
+
+You are an expert AI Systems Architect and Full-Stack Platform Engineer. We are building an enterprise-grade control dashboard for a custom Large Language Model (LLM) written with a PyTorch/C++ backend, a FastAPI gateway, and a React-based frontend.
+
+Your goal is to implement a complete web dashboard that allows users to dynamically scale model architecture, trigger and monitor training runs on chosen datasets, inspect prompt generations step-by-step (explainable AI), and export model artifacts for external use.
+
+### Key Requirements & Features:
+
+1. **Architectural Scaling & Hyperparameter Configurator:**
+   - Build a UI interface to configure model depth and capacity prior to training: number of Transformer layers, hidden dimension (d_model), number of attention heads, feed-forward dimension (d_ff), context length, vocabulary size, and target sequence window.
+   - Calculate and display the resulting parameter count (e.g., "125M parameters") and estimated VRAM footprint in real-time as the user adjusts sliders.
+   - Version-control model configurations so each architectural change creates a distinct model initialization.
+
+2. **Dashboard-Driven Training Pipeline:**
+   - Provide a dataset browser UI where users select from local datasets in `datasets/` (e.g., `.txt`, `.jsonl`).
+   - Allow users to launch, pause, or terminate training jobs directly from the UI.
+   - Stream training logs, GPU memory usage, learning rate decay, and real-time loss curves via FastAPI WebSockets.
+
+3. **Explainable Inference & Prompt Testing Playground:**
+   - Implement an interactive playground where users submit prompts and receive generated responses.
+   - Display an "Inference Breakdown Trace" for every generated token:
+     * Tokenization view: Highlight exact text chunks mapped to token IDs.
+     * Attention inspection: Show a matrix heat-map or node graph revealing how attention heads weighted context tokens.
+     * Probability distribution: Render a live bar chart of the top candidate tokens (Top-K/Top-p) and their softmax probabilities prior to final sampling.
+
+4. **Model Export & Packaging Suite:**
+   - Implement an export modal allowing one-click packaging of trained weights into standard `.safetensors` format along with `tokenizer.json` and `config.json`.
+   - Provide options to download the bundled zip file or export a standalone Python/C++ deployment package.
+
+### Technical Stack:
+- **Backend:** FastAPI (Async ASGI, WebSockets, Pydantic, Safetensors serialization).
+- **Core Engine:** PyTorch with C++ tensor extensions for model execution and weight initialization.
+- **Frontend:** React, Tailwind CSS, Recharts/D3.js (for probability/loss charts), and WebSockets.
+
+---
+
+### Phased Execution Plan:
+
+Please implement this system in the following order. Stop and wait for my confirmation after completing each phase:
+
+**Phase 1: Model Configurator & Parameter Calculator (Backend + Frontend)**
+- Implement the FastAPI endpoints and React schema forms to define model architecture hyperparameters.
+- Include a dynamic parameter calculator utility function (`calculate_model_params(config)`) returning total trainable parameters and estimated memory overhead.
+
+**Phase 2: Training Manager & WebSocket Telemetry**
+- Create the asynchronous background process runner in FastAPI to execute PyTorch training scripts with user-selected datasets and model configs.
+- Set up WebSocket handlers to broadcast real-time metrics (Epoch, Step, Loss, Tokens/sec, GPU VRAM) to the React dashboard.
+
+**Phase 3: Explainable Generation Engine & Tracing API**
+- Instrument the PyTorch forward/inference loop with hook points to capture token-level intermediate states (token IDs, attention weights, top-N logit probabilities).
+- Build the React Prompt Testing Playground to render this data in real time alongside generated tokens.
+
+**Phase 4: Export Manager & Packaging**
+- Write backend utility routes to compile model weights, tokenizer configs, and architecture definitions into `.safetensors` release archives.
+- Create the UI export modal to trigger and download compiled model packages.
+
+Start by acknowledging this plan and providing the updated folder structure for both the FastAPI backend and React frontend to support these components.

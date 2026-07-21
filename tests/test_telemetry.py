@@ -14,7 +14,7 @@ import sys
 
 import pytest
 
-from gateway.telemetry import RunAlreadyActive, TrainingSupervisor
+from gateway.telemetry import JOBS, RunAlreadyActive, TrainingSupervisor
 
 # A stand-in trainer: emits JSONL metrics interleaved with plain log lines.
 FAKE_TRAINER = """
@@ -155,6 +155,155 @@ async def test_shutdown_leaves_no_orphan(tmp_path):
     await asyncio.sleep(0.2)
     await sup.shutdown()
     assert handle.process.returncode is not None
+
+
+# ── pause / resume ───────────────────────────────────────────────────────────
+
+
+async def steps_seen(sup) -> int:
+    return sup.status()["step"]
+
+
+async def test_pause_halts_progress_and_resume_continues(tmp_path):
+    """SIGSTOP must actually stop the work, not just flip a flag."""
+    sup = SlowSupervisor(runs_dir=tmp_path / "runs", python=sys.executable)
+    await sup.start({"steps": 100000})
+    try:
+        await asyncio.sleep(0.4)
+        assert await sup.pause() is True
+        assert sup.status()["paused"] is True
+        # Still "running": the process exists and holds its memory.
+        assert sup.status()["running"] is True
+
+        # Let the pipe drain, then confirm the step counter has gone quiet.
+        await asyncio.sleep(0.3)
+        frozen = await steps_seen(sup)
+        await asyncio.sleep(0.5)
+        assert await steps_seen(sup) == frozen, "a paused run must not advance"
+
+        assert await sup.resume() is True
+        assert sup.status()["paused"] is False
+        await asyncio.sleep(0.4)
+        assert await steps_seen(sup) > frozen, "resume must let the run continue"
+    finally:
+        await sup.shutdown()
+
+
+async def test_pause_and_resume_are_idempotent(tmp_path):
+    sup = SlowSupervisor(runs_dir=tmp_path / "runs", python=sys.executable)
+    await sup.start({"steps": 100000})
+    try:
+        await asyncio.sleep(0.2)
+        assert await sup.pause() is True
+        assert await sup.pause() is False  # already paused
+        assert await sup.resume() is True
+        assert await sup.resume() is False  # not paused
+    finally:
+        await sup.shutdown()
+
+
+async def test_pause_without_a_run_returns_false(supervisor):
+    assert await supervisor.pause() is False
+    assert await supervisor.resume() is False
+
+
+async def test_stopping_a_paused_run_does_not_hang(tmp_path):
+    """A SIGSTOPped process never reaches its SIGTERM handler.
+
+    Without a SIGCONT first, stop() waits out the full 10s timeout and then has
+    to SIGKILL — so the UI's Stop button appears dead for ten seconds.
+    """
+    sup = SlowSupervisor(runs_dir=tmp_path / "runs", python=sys.executable)
+    await sup.start({"steps": 100000})
+    try:
+        await asyncio.sleep(0.2)
+        await sup.pause()
+
+        started = asyncio.get_running_loop().time()
+        assert await sup.stop() is True
+        elapsed = asyncio.get_running_loop().time() - started
+
+        assert elapsed < 5.0, f"stopping a paused run took {elapsed:.1f}s"
+        assert sup.status()["running"] is False
+    finally:
+        await sup.shutdown()
+
+
+async def test_pause_is_broadcast_to_subscribers(tmp_path):
+    sup = SlowSupervisor(runs_dir=tmp_path / "runs", python=sys.executable)
+    await sup.start({"steps": 100000})
+    seen: list[str] = []
+
+    async def collect():
+        async for event in sup.subscribe():
+            seen.append(event.get("type"))
+            if event.get("type") == "resumed":
+                return
+
+    task = asyncio.create_task(collect())
+    try:
+        await asyncio.sleep(0.2)
+        await sup.pause()
+        await asyncio.sleep(0.1)
+        await sup.resume()
+        await asyncio.wait_for(task, timeout=5)
+    finally:
+        task.cancel()
+        await sup.shutdown()
+
+    assert "paused" in seen and "resumed" in seen
+
+
+# ── job kinds ────────────────────────────────────────────────────────────────
+
+
+def test_train_is_the_default_kind(tmp_path):
+    sup = TrainingSupervisor(runs_dir=tmp_path / "runs", python="py")
+    command = sup._build_command({"config": "configs/debug.json", "steps": 5}, "r1")
+    assert "train.train" in command
+    assert command[command.index("--config") + 1] == "configs/debug.json"
+    assert command[command.index("--steps") + 1] == "5"
+
+
+def test_prepare_kind_spawns_the_tokenizer_entrypoint(tmp_path):
+    sup = TrainingSupervisor(runs_dir=tmp_path / "runs", python="py")
+    command = sup._build_command(
+        {"kind": "prepare", "config": "configs/debug.json", "dataset": "corpus.jsonl"}, "r1"
+    )
+    assert "train.train_tokenizer" in command
+    assert command[command.index("--dataset") + 1] == "corpus.jsonl"
+    # Training-only flags must not leak into the prepare command line.
+    assert "--steps" not in command
+
+
+def test_both_kinds_carry_the_emit_contract(tmp_path):
+    sup = TrainingSupervisor(runs_dir=tmp_path / "runs", python="py")
+    for kind in JOBS:
+        command = sup._build_command({"kind": kind}, "run-7")
+        assert "--emit-jsonl" in command
+        assert command[command.index("--run-id") + 1] == "run-7"
+
+
+async def test_unknown_job_kind_is_rejected(supervisor):
+    with pytest.raises(ValueError, match="unknown job kind"):
+        await supervisor.start({"kind": "definitely-not-a-job"})
+
+
+async def test_run_id_is_prefixed_with_the_kind(tmp_path):
+    """Run directories under runs/ should say what they were at a glance."""
+    sup = SlowSupervisor(runs_dir=tmp_path / "runs", python=sys.executable)
+    handle = await sup.start({"steps": 100000})
+    try:
+        assert handle.run_id.startswith("train-")
+        assert sup.status()["kind"] == "train"
+    finally:
+        await sup.shutdown()
+
+
+async def test_idle_status_reports_no_kind(supervisor):
+    status = supervisor.status()
+    assert status["kind"] is None
+    assert status["paused"] is False
 
 
 # ── persistence ──────────────────────────────────────────────────────────────

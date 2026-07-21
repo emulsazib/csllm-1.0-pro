@@ -6,9 +6,11 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { API_BASE, ApiError } from "../api/client";
+import { api } from "../api/client";
+import type { PreparedDataset } from "../api/types";
 import { useTrainingStream } from "../hooks/useTrainingStream";
 import { chartTokens } from "../theme";
+import { formatBytes } from "./ConfiguratorPanel";
 import { LossChart, Sparkline } from "./LossChart";
 
 interface StartOptions {
@@ -22,6 +24,9 @@ interface StartOptions {
   out: string;
 }
 
+/** Presets name a config AND the artifacts prepared for it. The pairing matters:
+ *  a tokenizer's vocab_size must match the model's, so mixing a debug tokenizer
+ *  with the shakespeare config fails at load rather than training badly. */
 const PRESETS: Record<string, StartOptions> = {
   debug: {
     config: "configs/debug.json",
@@ -48,10 +53,23 @@ const PRESETS: Record<string, StartOptions> = {
 export function TrainingDashboard() {
   const state = useTrainingStream(true);
   const [preset, setPreset] = useState<keyof typeof PRESETS>("debug");
+  const [dataChoice, setDataChoice] = useState("");
+  const [prepared, setPrepared] = useState<PreparedDataset[]>([]);
+  const [steps, setSteps] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const tokens = chartTokens();
+
+  // Refresh after every run: a prepare job that just finished should show up
+  // in the data selector without a page reload.
+  useEffect(() => {
+    if (state.running) return;
+    api
+      .prepared()
+      .then((body) => setPrepared(body.prepared))
+      .catch(() => {});
+  }, [state.running]);
 
   // Follow the tail, but only while the user is already at the bottom —
   // otherwise scrolling back to read something would keep yanking them away.
@@ -62,19 +80,11 @@ export function TrainingDashboard() {
     if (atBottom) el.scrollTop = el.scrollHeight;
   }, [state.logs]);
 
-  async function control(path: string, body?: unknown) {
+  async function run(action: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new ApiError(payload?.detail ?? `${response.status}`, response.status);
-      }
+      await action();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -82,8 +92,23 @@ export function TrainingDashboard() {
     }
   }
 
+  function startOptions(): StartOptions {
+    const base = { ...PRESETS[preset], steps: steps ?? PRESETS[preset].steps };
+    const chosen = prepared.find((p) => p.data_dir === dataChoice);
+    if (!chosen) return base;
+    return {
+      ...base,
+      data_dir: chosen.data_dir,
+      tokenizer_dir: chosen.tokenizer_dir,
+      out: `${chosen.data_dir}/model.csllm`,
+    };
+  }
+
   const progress = state.totalSteps ? state.step / state.totalSteps : 0;
   const lastLoss = state.train.at(-1)?.loss;
+  const lastRss = state.memory.at(-1)?.loss ?? null;
+  // A prepare job shares this socket but has no loss curve — only stages.
+  const preparing = state.running && state.kind === "prepare";
 
   return (
     <>
@@ -97,7 +122,7 @@ export function TrainingDashboard() {
 
         <div className="controls">
           <div className="control" style={{ flex: "none" }}>
-            <label>Preset</label>
+            <label>Config</label>
             <div style={{ display: "flex", gap: 4 }}>
               {Object.keys(PRESETS).map((name) => (
                 <button
@@ -112,8 +137,52 @@ export function TrainingDashboard() {
               ))}
             </div>
             <span className="note">
-              {PRESETS[preset].steps} steps · batch {PRESETS[preset].batch_size} · lr{" "}
-              {PRESETS[preset].lr}
+              batch {PRESETS[preset].batch_size} · lr {PRESETS[preset].lr}
+            </span>
+          </div>
+
+          <div className="control" style={{ maxWidth: 190 }}>
+            <label htmlFor="steps">
+              Steps <span className="value">{steps ?? PRESETS[preset].steps}</span>
+            </label>
+            <input
+              id="steps"
+              type="range"
+              min={50}
+              max={5000}
+              step={50}
+              disabled={state.running}
+              value={steps ?? PRESETS[preset].steps}
+              onChange={(e) => setSteps(Number(e.target.value))}
+            />
+            <span className="note">
+              <button className="ghost" onClick={() => setSteps(null)} disabled={state.running}>
+                reset to preset
+              </button>
+            </span>
+          </div>
+
+          <div className="control" style={{ maxWidth: 240 }}>
+            <label htmlFor="prepared">Data</label>
+            <select
+              id="prepared"
+              value={dataChoice}
+              disabled={state.running}
+              onChange={(e) => setDataChoice(e.target.value)}
+            >
+              <option value="">{PRESETS[preset].data_dir} (checked in)</option>
+              {prepared.map((p) => (
+                <option key={p.data_dir} value={p.data_dir}>
+                  {p.name} — {(p.train_tokens / 1000).toFixed(0)}k tokens
+                </option>
+              ))}
+            </select>
+            <span className="note">
+              {dataChoice
+                ? "prepared from the Datasets tab"
+                : prepared.length === 0
+                  ? "prepare a dataset to add options"
+                  : `${prepared.length} prepared dataset(s) available`}
             </span>
           </div>
 
@@ -123,14 +192,23 @@ export function TrainingDashboard() {
               <button
                 className="action"
                 disabled={busy || state.running}
-                onClick={() => control("/train/start", PRESETS[preset])}
+                onClick={() => run(() => api.startTraining(startOptions()))}
               >
                 Start run
               </button>
               <button
                 className="ghost"
                 disabled={busy || !state.running}
-                onClick={() => control("/train/stop")}
+                onClick={() =>
+                  run(() => api.trainControl(state.paused ? "resume" : "pause"))
+                }
+              >
+                {state.paused ? "Resume" : "Pause"}
+              </button>
+              <button
+                className="ghost"
+                disabled={busy || !state.running}
+                onClick={() => run(() => api.trainControl("stop"))}
               >
                 Stop
               </button>
@@ -140,10 +218,13 @@ export function TrainingDashboard() {
           <div className="control">
             <label>
               Connection{" "}
-              <span className="value">{state.connected ? "live" : "disconnected"}</span>
+              <span className="value">
+                {state.paused ? "paused" : state.connected ? "live" : "disconnected"}
+              </span>
             </label>
             <span className="note">
               {state.runId ?? "no run"}
+              {preparing && ` · preparing (${state.stage ?? "…"})`}
               {state.dropped > 0 && ` · ${state.dropped} events dropped`}
             </span>
           </div>
@@ -181,6 +262,20 @@ export function TrainingDashboard() {
             </div>
             <div className="sub">tokens / second</div>
           </div>
+          <div className="stat">
+            <div className="label">Epoch</div>
+            <div className="value">{state.epoch !== null ? state.epoch.toFixed(2) : "—"}</div>
+            <div className="sub">passes over the corpus</div>
+          </div>
+          <div className="stat">
+            <div className="label">{state.memoryLabel ?? "Memory"}</div>
+            <div className="value">{lastRss !== null ? formatBytes(lastRss) : "—"}</div>
+            <div className="sub">
+              {state.memoryTotal
+                ? `of ${formatBytes(state.memoryTotal)} · ${state.device ?? ""}`
+                : "trainer resident set"}
+            </div>
+          </div>
           {state.exitCode !== null && (
             <div className="stat">
               <div className="label">Exit</div>
@@ -194,7 +289,9 @@ export function TrainingDashboard() {
           <LossChart train={state.train} val={state.val} />
         ) : (
           <div className="empty">
-            No metrics yet. Start a run, or open this tab during one to replay its history.
+            {preparing
+              ? `Preparing a dataset (${state.stage ?? "…"}) — logs below.`
+              : "No metrics yet. Start a run, or open this tab during one to replay its history."}
           </div>
         )}
       </section>
@@ -220,6 +317,21 @@ export function TrainingDashboard() {
               <Sparkline points={state.gradNorm} label="|g|" color={tokens.series2} />
             </div>
           </div>
+
+          {state.memory.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div className="stat" style={{ marginBottom: 4 }}>
+                <div className="label">
+                  {state.memoryLabel ?? "Memory"} — trainer resident set
+                </div>
+                <div className="sub">
+                  sampled every 50 steps; the activation arena is allocated up front, so this
+                  should be flat rather than climbing
+                </div>
+              </div>
+              <Sparkline points={state.memory} label="bytes" color={tokens.series1} />
+            </div>
+          )}
         </section>
       )}
 

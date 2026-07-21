@@ -76,3 +76,114 @@ export interface SamplingSettings {
   top_k: number;
   top_p: number;
 }
+
+/** The hyperparameters that define an architecture — mirrors ArchitectureParams. */
+export interface ArchitectureConfig {
+  vocab_size: number;
+  n_layer: number;
+  n_head: number;
+  n_embd: number;
+  block_size: number;
+  /** d_ff. Named for the C++ field so the wire shape stays one vocabulary. */
+  ffn_hidden: number;
+  rope_theta: number;
+  norm_eps: number;
+}
+
+export interface ParamBreakdown {
+  embedding: number;
+  attention: number;
+  ffn: number;
+  norms: number;
+  total: number;
+}
+
+/** Bytes required to *train* at the requested batch/sequence shape. */
+export interface MemoryEstimate {
+  params: number;
+  gradients: number;
+  optimizer: number;
+  activations: number;
+  total: number;
+}
+
+export interface DeviceInfo {
+  kind: "cuda" | "apple-silicon" | "cpu";
+  device: string;
+  /** "VRAM" | "Unified memory" | "RAM" — whatever this host actually has. */
+  memory_label: string;
+  total_bytes: number;
+  used_bytes: number;
+  source: string;
+}
+
+export interface EstimateResponse {
+  config: ArchitectureConfig;
+  num_params: number;
+  params: ParamBreakdown;
+  memory: MemoryEstimate;
+  device: DeviceInfo;
+  /** False when the training footprint exceeds this host's memory. */
+  fits: boolean;
+}
+
+export interface DatasetInfo {
+  name: string;
+  path: string;
+  /** Which registered plugin reads this extension. */
+  plugin: string;
+  num_documents: number;
+  num_chars: number;
+  num_bytes: number;
+  sample: string;
+  /** Present instead of the counts when the file could not be read. */
+  error?: string;
+}
+
+export interface DatasetListing {
+  supported_extensions: string[];
+  datasets: DatasetInfo[];
+}
+
+/** A dataset that has been tokenized and binarized — ready to train on. */
+export interface PreparedDataset {
+  name: string;
+  data_dir: string;
+  tokenizer_dir: string;
+  train_tokens: number;
+  val_tokens: number;
+  vocab_size: number | null;
+  prepared_at: number;
+}
+
+export interface TrainStatus {
+  run_id: string | null;
+  /** "train" | "prepare", or null when idle. */
+  kind: string | null;
+  running: boolean;
+  /** SIGSTOPped: still resident, not consuming CPU. */
+  paused: boolean;
+  step: number;
+  total_steps: number;
+  progress: number;
+  last_loss: number | null;
+  best_val: number | null;
+  elapsed_s: number;
+  returncode: number | null;
+  command: string;
+  subscribers: number;
+  pid: number | null;
+}
+
+export interface ConfigVersion {
+  version_id: string;
+  index: number;
+  config: ArchitectureConfig;
+  num_params: number;
+  activation_bytes: number;
+  created_at: number;
+  note: string;
+  /** False when the config already existed — submission is idempotent. */
+  created: boolean;
+  checkpoint: string | null;
+}
