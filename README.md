@@ -78,7 +78,43 @@ Built in four approval-gated phases:
 - [x] **Phase 2** — C++ core: tensors, tape autograd, RoPE/RMSNorm/SwiGLU/attention, AdamW, sampler,
       KV-cache decoding, `.csllm` checkpoints — *all gradients verified in float64*
 - [x] **Phase 3** — BPE tokenizer, data pipeline, training loop — *model trained*
-- [x] **Phase 4** — FastAPI gateway with SSE streaming — *164 tests*
+- [x] **Phase 4** — FastAPI gateway with SSE streaming
+
+**2.0 — datasets, export, telemetry, diagnostics UI**
+
+- [x] Dataset plugins (`.txt`/`.jsonl`/`.csv`) + portable safetensors export
+- [x] Attention capture in C++, training telemetry over WebSocket, `/configure_model`
+- [x] React diagnostics UI: tokenization, embeddings, sampling playground
+- [x] 3D attention animation + live training dashboard
+
+*325 Python tests · 39 frontend tests · 0 compiler warnings*
+
+### Diagnostics web app
+
+```bash
+make web-build && make serve     # one process, app at http://localhost:8000
+make dev                         # or: gateway + Vite with HMR
+```
+
+Four tabs:
+
+| Tab | What it shows |
+| --- | --- |
+| Tokens & Embeddings | byte spans, partial-UTF-8 flags, live `tok_emb` heatmap |
+| Sampling | temperature / top-k / top-p sliders → probability chart + table |
+| Attention | 3D layer stack animated by **real captured attention** |
+| Training | live loss curves, LR/grad-norm, logs, start/stop |
+
+Two properties make this a diagnostic rather than a decoration:
+
+- The sampling chart is fed by the **same C++ `filtered_distribution` that `Sampler::sample`
+  is built on**, so what it shows and what the model draws from cannot drift apart.
+- The attention view renders weights **copied out of the decode loop's softmax**, verified
+  against an independent NumPy recomputation to 2.5e-07 — not a plausible-looking reconstruction.
+
+Attention is `n_layer × n_head × keys` float32 (~36 KB/token at full context), so
+`WS /ws/inspect` sends a JSON frame followed by a **binary `Float32Array` frame**, with
+client-selected layer/head filtering applied before serialisation.
 
 ### Serving
 

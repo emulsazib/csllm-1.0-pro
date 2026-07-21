@@ -1,7 +1,7 @@
 # `datasets` and `export` must be PHONY: a datasets/ directory exists, so make
 # would otherwise consider the target already satisfied and do nothing.
 .PHONY: help setup build rebuild test lint clean tokenizer train sample debug \
-        serve curl smoke export datasets
+        serve curl smoke export datasets web-install web-dev web-build web-test dev
 
 PORT    ?= 8000
 
@@ -32,6 +32,10 @@ help:
 	@echo "  make datasets   List datasets in datasets/raw/"
 	@echo "  make debug      Full tokenizer+train cycle on configs/debug.json (seconds)"
 	@echo "  make serve      Run the FastAPI gateway on PORT=$(PORT)"
+	@echo "  make web-build  Build the React app (FastAPI then serves it at /)"
+	@echo "  make web-dev    Vite dev server with HMR, proxying to the gateway"
+	@echo "  make web-test   Frontend unit tests (vitest)"
+	@echo "  make dev        Gateway + Vite together for development"
 	@echo "  make curl       Stream a completion from a running gateway"
 	@echo "  make clean      Remove build artifacts"
 
@@ -98,6 +102,27 @@ debug:
 
 serve:
 	$(VENV)/bin/uvicorn gateway.main:app --reload --port $(PORT)
+
+# ── frontend ────────────────────────────────────────────────────────────────
+
+web-install:
+	cd web && npm install
+
+web-build: web-install
+	cd web && npm run build
+
+web-test: web-install
+	cd web && npm run test && npm run typecheck
+
+# Two processes in development: Vite serves the UI with HMR and proxies /api and
+# /ws to uvicorn. A production build needs only `make web-build && make serve`.
+web-dev:
+	cd web && npm run dev
+
+dev:
+	@echo "gateway :$(PORT)  +  vite :5173  (Ctrl-C stops both)"
+	@$(VENV)/bin/uvicorn gateway.main:app --reload --port $(PORT) & \
+	 cd web && npm run dev; kill %1 2>/dev/null
 
 # End-to-end smoke test against a running gateway (make serve in another shell).
 curl:

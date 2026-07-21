@@ -336,8 +336,13 @@ struct GenerationSession::Impl {
   Sampler sampler;
   Arena scratch;
   std::vector<f32> logits;
-  std::vector<f32> sample_buf;
   i64 pos = 0;
+
+  // Attention capture. `attn` is [n_layer, n_head, block_size]; only the first
+  // `attn_len` entries of each row are meaningful.
+  bool capture = false;
+  std::vector<f32> attn;
+  i64 attn_len = 0;
 
   Impl(const Model<f32>& m, u64 seed)
       : model(m),
@@ -383,6 +388,11 @@ const f32* GenerationSession::Impl::forward_token(i32 token) {
     const f32 inv = 1.0f / std::sqrt(ss / static_cast<f32>(C) + eps);
     for (i64 j = 0; j < C; ++j) out[j] = gain[j] * x[j] * inv;
   };
+
+  if (capture) {
+    attn.assign(static_cast<std::size_t>(cfg.n_layer * H * maxT), 0.0f);
+    attn_len = pos + 1;  // keys 0..pos are visible to this query
+  }
 
   const Tensor<f32>& emb = P.get("tok_emb");
   std::memcpy(h, emb.data + static_cast<i64>(token) * C, static_cast<std::size_t>(C) * sizeof(f32));
@@ -433,8 +443,12 @@ const f32* GenerationSession::Impl::forward_token(i32 token) {
       const f32 inv = 1.0f / sum;
       f32* out = ctx + hd * dh;
       for (i64 d = 0; d < dh; ++d) out[d] = 0.0f;
+      // `w` IS the attention weight this head gave key t — capturing it here
+      // costs one store and cannot drift from what the model used.
+      f32* attn_row = capture ? &attn[static_cast<std::size_t>((l * H + hd) * maxT)] : nullptr;
       for (i64 t = 0; t <= pos; ++t) {
         const f32 w = sc[t] * inv;
+        if (attn_row) attn_row[t] = w;
         const f32* vt = cache_at(vcache, hd, t);
         for (i64 d = 0; d < dh; ++d) out[d] += w * vt[d];
       }
@@ -484,16 +498,33 @@ const f32* GenerationSession::decode(i32 token) { return impl_->forward_token(to
 
 i32 GenerationSession::step(i32 token, const SamplingParams& p) {
   const f32* logits = impl_->forward_token(token);
-  return impl_->sampler.sample(const_cast<f32*>(logits), impl_->model.config().vocab_size, p);
+  return impl_->sampler.sample(logits, impl_->model.config().vocab_size, p);
 }
 
 i32 GenerationSession::sample_last(const SamplingParams& p) {
   CSLLM_CHECK(impl_->pos > 0, "sample_last() requires a prior prefill() or decode()");
-  // sample() scales logits in place, so work on a copy — otherwise a second
-  // call would apply the temperature twice.
-  impl_->sample_buf = impl_->logits;
-  return impl_->sampler.sample(impl_->sample_buf.data(), impl_->model.config().vocab_size, p);
+  // sample() no longer mutates its input, so repeated calls are safe.
+  return impl_->sampler.sample(impl_->logits.data(), impl_->model.config().vocab_size, p);
 }
+
+void GenerationSession::set_capture_attention(bool enabled) {
+  impl_->capture = enabled;
+  if (!enabled) {
+    impl_->attn.clear();
+    impl_->attn_len = 0;
+  }
+}
+
+bool GenerationSession::capture_attention() const noexcept { return impl_->capture; }
+
+GenerationSession::AttentionView GenerationSession::last_attention() const {
+  CSLLM_CHECK(impl_->capture, "attention capture is disabled; call set_capture_attention(True)");
+  CSLLM_CHECK(impl_->attn_len > 0, "no attention captured yet; run prefill() or decode() first");
+  const ModelConfig& cfg = impl_->model.config();
+  return {impl_->attn.data(), cfg.n_layer, cfg.n_head, impl_->attn_len, cfg.block_size};
+}
+
+const ModelConfig& GenerationSession::config() const noexcept { return impl_->model.config(); }
 
 void GenerationSession::reset() {
   impl_->pos = 0;

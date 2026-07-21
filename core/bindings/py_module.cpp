@@ -442,17 +442,32 @@ PYBIND11_MODULE(_csllm_core, m) {
         {
           py::gil_scoped_release release;
           Sampler sampler(seed);
-          std::vector<f32> scratch(static_cast<std::size_t>(n));
-          for (i64 d = 0; d < draws; ++d) {
-            // sample() scales logits in place, so each draw needs a fresh copy.
-            std::memcpy(scratch.data(), src, static_cast<std::size_t>(n) * sizeof(f32));
-            dst[d] = sampler.sample(scratch.data(), n, p);
-          }
+          for (i64 d = 0; d < draws; ++d) dst[d] = sampler.sample(src, n, p);
         }
         return out;
       },
       py::arg("logits"), py::arg("params"), py::arg("seed") = 0, py::arg("draws") = 1,
       "Draw token ids from logits using the configured sampling strategy");
+
+  m.def(
+      "filtered_distribution",
+      [](NpArray<f32> logits, const SamplingParams& p) {
+        auto b = logits.request();
+        const auto n = static_cast<i64>(b.size);
+        py::array_t<f32> out(n);
+        auto ob = out.request();
+        {
+          py::gil_scoped_release release;
+          Sampler sampler(0);
+          sampler.distribution(static_cast<const f32*>(b.ptr), n, p,
+                               static_cast<f32*>(ob.ptr));
+        }
+        return out;
+      },
+      py::arg("logits"), py::arg("params"),
+      "Exact probabilities sample() would draw from after temperature/top-k/top-p "
+      "(zero for filtered-out tokens). sample() is built on this, so a UI showing "
+      "it cannot drift from the real sampler.");
 
   // ── raw GEMM (build verification) ─────────────────────────────────────────
   m.def("matmul_f32", &py_matmul_raw<f32>, py::arg("a"), py::arg("b"));
@@ -537,8 +552,43 @@ PYBIND11_MODULE(_csllm_core, m) {
           "Sample from the most recent logits without advancing. Use this for the "
           "FIRST generated token after prefill() — step(prompt[-1]) would feed the "
           "prompt's last token twice.")
+      .def(
+          "decode",
+          [](GenerationSession& s, i32 token, i64 vocab_size) {
+            py::array_t<f32> out(vocab_size);
+            auto ob = out.request();
+            {
+              py::gil_scoped_release release;
+              const f32* logits = s.decode(token);
+              std::memcpy(ob.ptr, logits, static_cast<std::size_t>(vocab_size) * sizeof(f32));
+            }
+            return out;
+          },
+          py::arg("token"), py::arg("vocab_size"),
+          "Feed one token and return the next-token logits WITHOUT sampling")
       .def("reset", &GenerationSession::reset)
       .def("reseed", &GenerationSession::reseed, py::arg("seed"))
+      .def("set_capture_attention", &GenerationSession::set_capture_attention, py::arg("enabled"),
+           "Record per-head attention weights during decoding (off by default)")
+      .def_property_readonly("capture_attention", &GenerationSession::capture_attention)
+      .def(
+          "last_attention",
+          [](GenerationSession& s) {
+            const auto view = s.last_attention();
+            py::array_t<f32> out({view.n_layer, view.n_head, view.length});
+            auto ob = out.request();
+            auto* dst = static_cast<f32*>(ob.ptr);
+            // Compact the padded rows (pitch = block_size) down to `length`.
+            for (i64 l = 0; l < view.n_layer; ++l) {
+              for (i64 h = 0; h < view.n_head; ++h) {
+                const f32* src = view.data + (l * view.n_head + h) * view.stride;
+                std::memcpy(dst + (l * view.n_head + h) * view.length, src,
+                            static_cast<std::size_t>(view.length) * sizeof(f32));
+              }
+            }
+            return out;
+          },
+          "Captured attention as [n_layer, n_head, keys_attended]; rows sum to 1")
       .def_property_readonly("position", &GenerationSession::position)
       .def_property_readonly("cache_bytes", &GenerationSession::cache_bytes);
 }

@@ -2,36 +2,48 @@
 
     uvicorn gateway.main:app --port 8000        (or: make serve)
 
-Endpoints:
-    POST /generate   prompt, max_tokens, temperature, top_k, top_p, seed, stream
-                     -> SSE token stream, or a single JSON body when stream=false
-    GET  /health     model metadata and live session count
+Routers:
+    inference   POST /generate, GET /health
+    training    POST /train/{start,stop}, GET /train/status, WS /ws/train
+    config      POST /configure_model, GET /configs, POST /export
+    datasets    GET /datasets, /datasets/{name}[/preview]
 
 The model and tokenizer load ONCE in the lifespan handler — loading per request
 would dominate latency and defeat the mmap-able checkpoint format.
+
+The served model is a loaded checkpoint, deliberately independent of any training
+run the supervisor is driving: a crashing trainer must not take inference down,
+and a mid-run checkpoint must not silently swap under live requests.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
-from sse_starlette.sse import EventSourceResponse
+from fastapi.staticfiles import StaticFiles
 
 from csllm import _csllm_core as core
 from csllm.tokenizer import BPETokenizer
 
 from .engine import AtCapacity, Engine
-from .schemas import GenerateRequest, GenerateResponse, HealthResponse
+from .routes import config as config_routes
+from .routes import datasets as dataset_routes
+from .routes import inference as inference_routes
+from .routes import inspect as inspect_routes
+from .routes import training as training_routes
 from .settings import Settings, get_settings
+from .telemetry import TrainingSupervisor
+from .versioning import ConfigStore
 
 logger = logging.getLogger("csllm.gateway")
 
-SSE_DONE = "[DONE]"
+#: Built frontend, mounted when present so production is a single process.
+WEB_DIST = Path("web/dist")
 
 
 def build_engine(settings: Settings) -> Engine:
@@ -56,23 +68,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Allows tests to inject a pre-built engine and skip disk I/O.
     if not getattr(app.state, "engine", None):
         app.state.engine = build_engine(settings)
+    if not getattr(app.state, "supervisor", None):
+        app.state.supervisor = TrainingSupervisor()
+    if not getattr(app.state, "config_store", None):
+        app.state.config_store = ConfigStore()
     yield
+    supervisor = getattr(app.state, "supervisor", None)
+    if supervisor is not None:
+        # Never leave an orphaned trainer burning cores after the gateway exits.
+        await supervisor.shutdown()
     app.state.engine = None
 
 
 app = FastAPI(
     title="CSLLM Gateway",
     version="1.0.0",
-    description="Streaming inference for a Transformer built from scratch in C++",
+    description="Streaming inference, training telemetry, and diagnostics for a "
+    "Transformer built from scratch in C++",
     lifespan=lifespan,
 )
 
-
-def get_engine(request: Request) -> Engine:
-    engine = getattr(request.app.state, "engine", None)
-    if engine is None:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "model is not loaded")
-    return engine
+app.include_router(inference_routes.router)
+app.include_router(inspect_routes.router)
+app.include_router(training_routes.router)
+app.include_router(config_routes.router)
+app.include_router(dataset_routes.router)
 
 
 @app.exception_handler(AtCapacity)
@@ -84,59 +104,6 @@ async def _at_capacity_handler(request: Request, exc: AtCapacity) -> JSONRespons
     )
 
 
-@app.get("/health", response_model=HealthResponse)
-async def health(request: Request) -> HealthResponse:
-    engine = get_engine(request)
-    cfg = engine.model.config
-    build = core.build_info()
-    return HealthResponse(
-        status="ok",
-        version=build.version,
-        num_params=engine.model.num_params(),
-        vocab_size=cfg.vocab_size,
-        block_size=cfg.block_size,
-        n_layer=cfg.n_layer,
-        n_head=cfg.n_head,
-        n_embd=cfg.n_embd,
-        blas_backend=build.blas_backend,
-        max_concurrent_sessions=engine.settings.max_concurrent_sessions,
-        sessions_in_flight=engine.sessions_in_flight,
-        kv_cache_bytes_per_session=engine.kv_cache_bytes(),
-    )
-
-
-@app.post("/generate")
-async def generate(req: GenerateRequest, request: Request):
-    engine = get_engine(request)
-
-    if not req.stream:
-        try:
-            result = await engine.complete(req, request.is_disconnected)
-        except AtCapacity as exc:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-        return GenerateResponse(
-            text=result.text,
-            prompt_tokens=result.prompt_tokens,
-            completion_tokens=result.completion_tokens,
-            finish_reason=result.finish_reason,
-        )
-
-    async def event_stream() -> AsyncIterator[dict]:
-        try:
-            async for chunk in engine.stream(req, request.is_disconnected):
-                yield {"data": chunk.model_dump_json()}
-            yield {"data": SSE_DONE}
-        except AtCapacity as exc:
-            yield {"event": "error", "data": json.dumps({"detail": str(exc)})}
-        except ValueError as exc:
-            yield {"event": "error", "data": json.dumps({"detail": str(exc)})}
-        except Exception:  # pragma: no cover - defensive
-            logger.exception("generation failed")
-            yield {"event": "error", "data": json.dumps({"detail": "internal error"})}
-
-    # sse-starlette sets the SSE headers and cancels the generator on disconnect;
-    # the explicit is_disconnected() poll above stops the C++ work promptly too,
-    # so an abandoned browser tab cannot keep a CPU core busy.
-    return EventSourceResponse(event_stream())
+if WEB_DIST.is_dir():
+    # Mounted last so it cannot shadow an API route.
+    app.mount("/", StaticFiles(directory=str(WEB_DIST), html=True), name="web")

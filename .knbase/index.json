@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-21T11:48:11.702Z",
+  "updatedAt": "2026-07-21T18:38:51.912Z",
   "files": {
     "prd": {
       "key": "prd",
@@ -55,9 +55,9 @@
       "key": "phase",
       "path": "memory-bank/phase.md",
       "exists": true,
-      "checksum": "fe588c154cf8a35ec1ec3587e8dc2fa42c0b8e28c79b64bc3fce280d0ec48e44",
-      "bytes": 3466,
-      "summary": "CSLLM 1.0 complete; 2.0 Phase 1 (dataset plugins + safetensors export) complete; awaiting approval for 2.0 Phase 2 (telemetry + config API + attention capture).",
+      "checksum": "48e79037ae2a67f0fffa2f4327233f6747671d680f87617129b323940a5a18c3",
+      "bytes": 3200,
+      "summary": "All phases of CSLLM 1.0 and 2.0 are complete; remaining work is backlog only.",
       "headings": [
         "Current Phase",
         "Completed",
@@ -65,7 +65,7 @@
         "Next Up",
         "Backlog"
       ],
-      "updatedAt": "2026-07-21T11:47:43.470Z"
+      "updatedAt": "2026-07-21T18:38:35.374Z"
     },
     "rules": {
       "key": "rules",
@@ -86,16 +86,16 @@
       "key": "memory",
       "path": "memory-bank/memory.md",
       "exists": true,
-      "checksum": "c9173660d1cca270e8042756b0b0c562773bbd667239751137b0e409c4317580",
-      "bytes": 7557,
-      "summary": "Running knowledge base: CSLLM 1.0 complete (engine, trained model, SSE gateway) plus 2.0 Phase 1 (dataset plugins, special tokens, safetensors export); all environment/engine/training/serving/data gotchas.",
+      "checksum": "bc5173071fa5f556de168086d6f5fe838d45753f3314fa9a854a667b64bba85e",
+      "bytes": 7186,
+      "summary": "Running knowledge base: CSLLM 1.0 and 2.0 both complete — C++ engine, trained model, gateway, and full React diagnostics UI; all environment, engine, training, serving and frontend gotchas.",
       "headings": [
         "Summary",
         "Recent Changes",
         "Learnings & Gotchas",
         "Known Issues"
       ],
-      "updatedAt": "2026-07-21T11:47:16.154Z"
+      "updatedAt": "2026-07-21T18:38:11.594Z"
     }
   }
 }

@@ -139,6 +139,30 @@ class GenerationSession {
   void reset();
   void reseed(u64 seed);
 
+  // ── attention capture (diagnostics / visualization) ──────────────────────
+  //
+  // Off by default and free when off: the decode loop already computes the
+  // per-head softmax weights, so capturing is one extra store per weight. With
+  // it on, last_attention() exposes what the model ACTUALLY attended to, rather
+  // than a plausible-looking reconstruction.
+  //
+  // Rows sum to 1 and cover keys 0..position-1.
+  void set_capture_attention(bool enabled);
+  bool capture_attention() const noexcept;
+
+  // A view of the captured weights. `stride` is the allocated row pitch
+  // (block_size); only the first `length` entries of each row are meaningful.
+  // Valid until the next prefill()/decode()/step().
+  struct AttentionView {
+    const f32* data;
+    i64 n_layer;
+    i64 n_head;
+    i64 length;   // keys attended to = position at capture time
+    i64 stride;   // row pitch in floats
+  };
+  AttentionView last_attention() const;
+
+  const ModelConfig& config() const noexcept;
   i64 position() const noexcept;
   std::size_t cache_bytes() const noexcept;
 

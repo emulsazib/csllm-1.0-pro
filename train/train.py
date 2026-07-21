@@ -30,6 +30,25 @@ from csllm.data import DATA_DIR, TOKENIZER_DIR, get_batch, load_split
 from csllm.tokenizer import BPETokenizer
 
 
+def make_emitter(enabled: bool, run_id: str):
+    """Return an ``emit(kind, **fields)`` that writes one JSON object per line.
+
+    The gateway's TrainingSupervisor reads stdout and treats parseable lines as
+    structured metrics and everything else as log text, so the human-readable
+    prints below stay exactly as they are.
+    """
+
+    def emit(kind: str, **fields) -> None:
+        if not enabled:
+            return
+        payload = {"type": kind, "run_id": run_id, "t": time.time(), **fields}
+        # flush: the supervisor reads this pipe live, and block buffering would
+        # stall the dashboard until the run ended.
+        print(json.dumps(payload), flush=True)
+
+    return emit
+
+
 def evaluate(model, data, batch_size, block_size, iters, rng) -> float:
     """Mean loss over a few fixed-size batches (no grad graph is walked)."""
     total = 0.0
@@ -79,7 +98,14 @@ def main() -> None:
     parser.add_argument("--sample-prompt", default="KING RICHARD:\n")
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--emit-jsonl",
+        action="store_true",
+        help="also print one JSON object per metric row (for the gateway supervisor)",
+    )
+    parser.add_argument("--run-id", default="local", help="identifier stamped on emitted rows")
     args = parser.parse_args()
+    emit = make_emitter(args.emit_jsonl, args.run_id)
 
     cfg = csllm.load_config(args.config)
     rng = np.random.default_rng(args.seed)
@@ -123,6 +149,21 @@ def main() -> None:
     t_start = time.time()
     t_window = time.time()
 
+    emit(
+        "start",
+        steps=args.steps,
+        start_step=start_step,
+        batch_size=args.batch_size,
+        block_size=cfg.block_size,
+        tokens_per_step=tokens_per_step,
+        num_params=model.num_params(),
+        train_tokens=len(train_data),
+        val_tokens=len(val_data),
+        lr=args.lr,
+        min_lr=args.min_lr,
+        warmup=args.warmup,
+    )
+
     for step in range(start_step, args.steps):
         lr = core.cosine_lr(step, args.warmup, args.steps, args.lr, args.min_lr)
 
@@ -134,7 +175,12 @@ def main() -> None:
         opt.step(lr)
 
         if not math.isfinite(loss):
+            emit("error", step=step, message="loss went non-finite")
             raise SystemExit(f"loss went non-finite at step {step}; aborting")
+
+        # Every step is emitted so the dashboard's loss curve is not aliased by
+        # the 50-step print cadence; the human-readable line stays throttled.
+        emit("step", step=step, loss=loss, lr=lr, grad_norm=grad_norm)
 
         if step % 50 == 0:
             dt = (time.time() - t_window) / max(1, 50 if step else 1)
@@ -144,6 +190,7 @@ def main() -> None:
                 f"{tokens_per_step / dt:,.0f} tok/s",
                 flush=True,
             )
+            emit("throughput", step=step, ms_per_step=dt * 1000, tokens_per_s=tokens_per_step / dt)
             t_window = time.time()
 
         if step > 0 and step % args.eval_every == 0:
@@ -155,11 +202,13 @@ def main() -> None:
                 sidecar.write_text(json.dumps({"step": step, "val_loss": val}, indent=1))
                 marker = "  <- saved"
             print(f"  eval @ {step}: val_loss {val:.4f} (best {best_val:.4f}){marker}", flush=True)
+            emit("eval", step=step, val_loss=val, best_val=best_val, saved=bool(marker))
             t_window = time.time()
 
         if args.sample_every and step > 0 and step % args.sample_every == 0:
             text = generate(model, tokenizer, args.sample_prompt, 200, 0.8, 40, 0.95, args.seed)
             print(f"  --- sample @ {step} ---\n{text}\n  ---", flush=True)
+            emit("sample", step=step, text=text)
             t_window = time.time()
 
     val = evaluate(model, val_data, args.batch_size, cfg.block_size, args.eval_iters, rng)
@@ -173,6 +222,15 @@ def main() -> None:
     print(f"checkpoint: {args.out}")
     sample = generate(model, tokenizer, args.sample_prompt, 300, 0.8, 40, 0.95, args.seed)
     print(f"\n--- final sample ---\n{sample}")
+    emit(
+        "done",
+        step=args.steps,
+        elapsed_min=elapsed,
+        final_val=val,
+        best_val=best_val,
+        checkpoint=args.out,
+        sample=sample,
+    )
 
 
 if __name__ == "__main__":
