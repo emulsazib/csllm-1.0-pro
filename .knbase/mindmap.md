@@ -24,7 +24,7 @@ mindmap
       External Dependencies
     Design
       ::icon(fa fa-info)
-      Interfaces, the hand-derived gradient formulas for every op, the .csllm format, and key decisions RoPE/RMSNorm/SwiGLU, weight tying, double-precision gradcheck, GIL release.
+      Implemented interfaces, the hand-derived gradient formulas, the .csllm format, and key decisions — updated to match the Phase 2 implementation.
       Modules & Interfaces
       Key Decisions
       Data Models
@@ -32,7 +32,7 @@ mindmap
       Open Questions
     Phases & Roadmap
       ::icon(fa fa-info)
-      Phase 1 scaffolding & build complete and verified; awaiting user approval to begin Phase 2 C++ core + bindings.
+      Phases 1-2 complete and verified; awaiting user approval to begin Phase 3 BPE tokenizer, data pipeline, training loop.
       Current Phase
       Completed
       In Progress
@@ -47,7 +47,7 @@ mindmap
       Guardrails
     Project Memory
       ::icon(fa fa-info)
-      Running knowledge base: Phase 1 scaffolding complete and verified; environment/build gotchas including the pybind11>=3.0 requirement for Python 3.14.
+      Running knowledge base: Phases 1-2 complete and verified 83 tests, full double-precision gradchecks, overfit-to-zero; environment and design gotchas for future agents.
       Summary
       Recent Changes
       Learnings & Gotchas
@@ -60,9 +60,9 @@ mindmap
 | --- | --- | --- |
 | prd | ok | Build CSLLM: a ~12M-param autoregressive Transformer from scratch — pure C++ engine with hand-written autograd, Python BPE + training loop, FastAPI SSE gateway. |
 | architecture | ok | Three-layer system: C++ engine (core/) compiled to a pybind11 module, shared Python package (csllm/) with BPE + config + data, and training (train/) and FastAPI (gateway/) entrypoints. |
-| design | ok | Interfaces, the hand-derived gradient formulas for every op, the .csllm format, and key decisions (RoPE/RMSNorm/SwiGLU, weight tying, double-precision gradcheck, GIL release). |
-| phase | ok | Phase 1 (scaffolding & build) complete and verified; awaiting user approval to begin Phase 2 (C++ core + bindings). |
+| design | ok | Implemented interfaces, the hand-derived gradient formulas, the .csllm format, and key decisions — updated to match the Phase 2 implementation. |
+| phase | ok | Phases 1-2 complete and verified; awaiting user approval to begin Phase 3 (BPE tokenizer, data pipeline, training loop). |
 | rules | ok | Hard rules: no PyTorch/autograd libraries ever, no op ships without a NumPy oracle and a double-precision gradcheck, phase gates require explicit user approval. |
-| memory | ok | Running knowledge base: Phase 1 (scaffolding) complete and verified; environment/build gotchas including the pybind11>=3.0 requirement for Python 3.14. |
+| memory | ok | Running knowledge base: Phases 1-2 complete and verified (83 tests, full double-precision gradchecks, overfit-to-zero); environment and design gotchas for future agents. |
 
-_Updated: 2026-07-21T09:58:31.943Z_
+_Updated: 2026-07-21T10:31:19.914Z_

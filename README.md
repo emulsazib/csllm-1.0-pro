@@ -62,9 +62,13 @@ Because every gradient is derived by hand, correctness is enforced structurally:
 Built in four approval-gated phases:
 
 - [x] **Phase 1** — scaffolding, CMake/scikit-build-core bridge, configs
-- [ ] **Phase 2** — C++ core: tensors, tape autograd, RoPE/RMSNorm/SwiGLU/attention, AdamW, sampler
+- [x] **Phase 2** — C++ core: tensors, tape autograd, RoPE/RMSNorm/SwiGLU/attention, AdamW, sampler,
+      KV-cache decoding, `.csllm` checkpoints — *83 tests, all gradients verified in float64*
 - [ ] **Phase 3** — BPE tokenizer, data pipeline, training loop
 - [ ] **Phase 4** — FastAPI gateway with SSE streaming
+
+Measured at the 12M config (8 CPU threads): **~0.28 s/step** (≈3,600 tok/s) for
+forward+backward+AdamW at B=4/T=256, 510 MB activation arena, 4.7 MB KV cache per session.
 
 ## Ground rules
 

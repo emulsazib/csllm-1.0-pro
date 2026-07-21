@@ -73,6 +73,7 @@ add_library(csllm_core STATIC
   core/src/tensor.cpp
   core/src/autograd.cpp
   core/src/gemm.cpp
+  core/src/json.cpp
   core/src/ops_norm.cpp
   core/src/ops_rope.cpp
   core/src/ops_activation.cpp

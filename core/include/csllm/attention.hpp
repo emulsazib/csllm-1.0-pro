@@ -20,11 +20,17 @@ namespace csllm {
 
 struct AttentionParams {
   i64 n_head = 0;
-  i64 head_dim = 0;   // must be even, for RoPE pair rotation
-  f32 rope_theta = 10000.0f;
+  i64 head_dim = 0;      // must be even, for RoPE pair rotation
+  double rope_theta = 10000.0;
+  i64 pos_offset = 0;    // >0 when decoding with a warm KV cache
 };
 
-// x: [B,T,C] -> out: [B,T,C]. Weights are [C,C] row-major.
+// Fused causal multi-head self-attention with RoPE.
+//   x: [B,T,C] -> out: [B,T,C];  weights are [C,C] row-major, C = n_head*head_dim.
+//
+// A single tape node rather than a composition of primitives: the T×T
+// probability matrix is materialised once and shared by every branch of the
+// backward.
 template <typename T>
 Tensor<T> attention(Arena& a, const Tensor<T>& x, const Tensor<T>& wq, const Tensor<T>& wk,
                     const Tensor<T>& wv, const Tensor<T>& wo, const AttentionParams& p);

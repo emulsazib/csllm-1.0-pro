@@ -1,4 +1,5 @@
 #include <cmath>
+#include <vector>
 
 #include "csllm/ops.hpp"
 

@@ -2,149 +2,150 @@
 
 ## Modules & Interfaces
 
-### C++ core (`core/include/csllm/`)
+### C++ core (`core/include/csllm/`) — implemented in Phase 2
 
 ```cpp
 template <typename T> struct Tensor {          // tensor.hpp
-  T* data; T* grad; Shape shape; Strides strides;
-  bool requires_grad; int node_id;
+  T* data; T* grad; Shape shape; bool requires_grad; int node_id;
 };
+template <typename T> Tensor<T> make_tensor(Arena&, const Shape&, bool requires_grad);
 
-struct Node { std::function<void()> backward_fn; std::vector<int> parents; };  // autograd.hpp
-struct Tape { std::vector<Node> nodes; void backward(int root); void clear(); };
+struct Node { std::function<void()> backward_fn; std::vector<int> parents; std::string name; };
+template <typename T> class Tape {             // autograd.hpp
+  int push(Node); void backward(int root); void clear(); static Tape& active();
+};
+class NoGradGuard { ... };                     // inference / no_grad regions
 
 // ops.hpp — every op appends a Node to the active Tape
-Tensor<T> matmul(const Tensor<T>& a, const Tensor<T>& b);
-Tensor<T> rmsnorm(const Tensor<T>& x, const Tensor<T>& gain, T eps);
-void      rope_(Tensor<T>& q, Tensor<T>& k, int pos_offset);   // in-place
-Tensor<T> softmax_causal(const Tensor<T>& scores);
-Tensor<T> swiglu(const Tensor<T>& x, const Tensor<T>& wg, const Tensor<T>& wu, const Tensor<T>& wd);
-Tensor<T> cross_entropy(const Tensor<T>& logits, const int32_t* targets);  // fused log-softmax + NLL
+template <typename T> Tensor<T> matmul(Arena&, const Tensor<T>& x, const Tensor<T>& w);
+template <typename T> Tensor<T> matmul_bt(Arena&, const Tensor<T>& x, const Tensor<T>& w);
+template <typename T> Tensor<T> add(Arena&, const Tensor<T>&, const Tensor<T>&);
+template <typename T> Tensor<T> rmsnorm(Arena&, const Tensor<T>& x, const Tensor<T>& gain, T eps);
+template <typename T> void      rope_apply(T*, i64 B, i64 H, i64 T, i64 dh, i64 pos, T theta, bool inverse);
+template <typename T> Tensor<T> rope(Arena&, const Tensor<T>&, i64 pos_offset, T theta);
+template <typename T> Tensor<T> softmax_causal(Arena&, const Tensor<T>& scores);
+template <typename T> Tensor<T> silu(Arena&, const Tensor<T>&);
+template <typename T> Tensor<T> swiglu(Arena&, const Tensor<T>& x, wg, wu, wd);
+template <typename T> Tensor<T> embedding(Arena&, const Tensor<T>& table, const i32* ids, i64 n);
+template <typename T> Tensor<T> cross_entropy(Arena&, const Tensor<T>& logits, const i32*, i64 n);
+
+// attention.hpp — one fused node, not a composition of primitives
+template <typename T> Tensor<T> attention(Arena&, const Tensor<T>& x /*[B,T,C]*/,
+                                          wq, wk, wv, wo, const AttentionParams&);
+template <typename T> class KVCache { T* key(i64 layer); T* value(i64 layer); ... };
 
 // model.hpp
-class CSLLM {
-  static CSLLM load(const std::string& path);          // mmap the .csllm
-  Tensor<float> forward(const int32_t* ids, int B, int T);
-  float forward_loss(const int32_t* ids, const int32_t* targets, int B, int T);
-  void  zero_grad();
-  size_t num_params() const;
+template <typename T> class Model {
+  Model(const ModelConfig&, u64 seed);
+  static Model load(const std::string&);  void save(const std::string&) const;
+  T forward_loss(const i32* ids, const i32* targets, i64 B, i64 T);
+  void backward();  void zero_grad();
+  const T* forward_logits(const i32* ids, i64 B, i64 T);   // no-grad
+};
+class GenerationSession {                      // one per HTTP request
+  const f32* prefill(const i32* ids, i64 n);
+  const f32* decode(i32 token);
+  i32 step(i32 token, const SamplingParams&);
+  void reset(); void reseed(u64);
 };
 
-class GenerationSession {                     // one per HTTP request; owns its KV cache
-  GenerationSession(const CSLLM& model, uint64_t seed);
-  void prefill(const int32_t* ids, int n);
-  int32_t step(float temperature, int top_k, float top_p);   // returns next token id
-  void reset();
-};
-
-class AdamW {                                  // optim.hpp
-  AdamW(ParamGroup& params, float lr, float beta1, float beta2, float eps, float wd);
-  float clip_grad_norm(float max_norm);        // returns pre-clip global norm
-  void step(float lr);
+template <typename T> class AdamW {            // optim.hpp
+  T clip_grad_norm(T max_norm);   // returns the PRE-clip global norm
+  void step(T lr);
 };
 ```
+
+`json.hpp` is a minimal reader/writer added so `.csllm` headers stay human-inspectable
+without a third-party dependency.
 
 ### Python (`csllm/`)
 
 ```python
-@dataclass
-class ModelConfig:                    # config.py — mirrors the C++ struct, (de)serialized to JSON
-    vocab_size: int; n_layer: int; n_head: int; n_embd: int
-    block_size: int; ffn_hidden: int; rope_theta: float = 10000.0; norm_eps: float = 1e-5
-
-class BPETokenizer:                   # tokenizer.py — byte-level, lossless over any UTF-8
-    def train(self, text: str, vocab_size: int) -> None: ...
-    def encode(self, s: str) -> list[int]: ...
-    def decode(self, ids: list[int]) -> str: ...
-    def save(self, dir: str) -> None: ...       # vocab.json + merges.txt
-    @classmethod
-    def load(cls, dir: str) -> "BPETokenizer": ...
+@dataclass-like ModelConfig                    # C++ type, exposed via pybind11
+class BPETokenizer:                            # tokenizer.py — Phase 3
+    train / encode / decode / save / load
+def load_config(path) -> ModelConfig           # config.py
 ```
 
 ## Key Decisions
 
 | # | Decision | Rationale / trade-off |
 | --- | --- | --- |
-| D1 | **Pure C++, zero PyTorch** | The project's purpose. One engine serves training *and* inference, so the served model cannot drift from the trained one. Cost: every backward derived by hand. |
-| D2 | **Apple Accelerate for GEMM** | Tuned, multithreaded `sgemm` with zero third-party dependencies on arm64 macOS. A naive fallback keeps the code portable. |
-| D3 | **RoPE + RMSNorm + SwiGLU, pre-norm** | Matches contemporary production models (Llama-style). Pre-norm trains stably without warmup tricks — important when the optimizer is hand-written. RoPE extrapolates past the training context. |
-| D4 | **Tape-based reverse-mode autograd** | Closure-per-node is simple and debuggable; the graph is rebuilt each step, so control flow is free. |
-| D5 | **Arena allocation** | Activations bump-allocate and reset per step: no per-op malloc traffic, no fragmentation, trivially freed. Parameters sit in a separate persistent arena. |
-| D6 | **Ops templated on scalar type** | Enables **double-precision** gradient checking. fp32 central differences are too noisy to distinguish a real gradient bug from rounding — this is the single most important testability decision. |
-| D7 | **Weight-tied `lm_head`** | Saves 1.57M params (~13% of the model) and regularizes. Consequence: the embedding gradient **accumulates from two paths** — a classic and easy-to-miss bug. |
-| D8 | **Tokenizer in Python, in the shared package** | Encoding cost is negligible beside the forward pass; Python keeps BPE debuggable. Shared so training and gateway use one implementation. |
-| D9 | **Bindings release the GIL** | `py::gil_scoped_release` around compute is what lets FastAPI serve concurrent streams via `asyncio.to_thread`. |
-| D10 | **Per-request `GenerationSession`** | Weights shared read-only; only the KV cache (~4.5 MiB) is per-request, so concurrency is cheap and requests cannot corrupt each other's state. |
-| D11 | **No `-ffast-math`** | It would license reassociation and break NaN/Inf guards and reproducibility. `-O3 -funroll-loops -fno-math-errno` instead. |
-| D12 | **mmap-able `.csllm` checkpoints** | Near-instant gateway startup and page-cache sharing across worker processes. |
+| D1 | **Pure C++, zero PyTorch** | The project's purpose. One engine serves training *and* inference, so the served model cannot drift from the trained one. |
+| D2 | **Apple Accelerate for GEMM** | Tuned, multithreaded `sgemm`/`dgemm`, no third-party dependency. Naive fallback keeps it portable. |
+| D3 | **RoPE + RMSNorm + SwiGLU, pre-norm** | Matches contemporary production models. Pre-norm trains stably without warmup tricks. |
+| D4 | **Tape-based reverse-mode autograd** | Nodes are appended in forward order, so a node's index always exceeds its parents'. Walking indices downward from the root is therefore already a valid reverse-topological order — **no sort is needed**, only a reachability mark. |
+| D5 | **Arena allocation** | Activations bump-allocate and reset per step. Parameters and their gradients live in separate persistent arenas so they survive the reset. |
+| D6 | **Ops templated on scalar type** | Enables **double-precision** gradient checking. The single most important testability decision — see Verification. |
+| D7 | **Weight-tied `lm_head` via `matmul_bt`** | `logits = h @ tok_embᵀ`. Saves 1.57M params (~13%). The embedding gradient accumulates from **two** paths (scatter-add + `matmul_bt`'s dW), both `+=` into one buffer. |
+| D8 | **Attention is one fused node** | The `[B,H,T,T]` probability matrix is materialised once and shared by every backward branch. |
+| D9 | **Bindings release the GIL** | `py::gil_scoped_release` around all compute — what lets FastAPI serve concurrent streams. |
+| D10 | **Per-request `GenerationSession`** | Weights shared read-only; only the KV cache (4.7 MB measured) is per-request. |
+| D11 | **No `-ffast-math`** | Would break NaN/Inf guards and reproducibility. Asserted by a test on `__FAST_MATH__`. |
+| D12 | **mmap-able `.csllm` checkpoints** | Near-instant gateway startup and page-cache sharing. |
+| D13 | **RoPE uses INTERLEAVED pairs** | Channels (2p, 2p+1) rotate together. The alternative (d paired with d+Dh/2) is **not** interchangeable; `tests/reference.py` must match this choice. |
+| D14 | **AdamW skips decay on 1-D tensors** | Decaying RMSNorm gains toward zero would suppress the signal they scale. Standard exclusion. |
+| D15 | **Attention backward reuses dead forward buffers** | `qf/kf/vf/ctx` are dead after packing, so the backward aliases them instead of allocating four more `[B*T,C]` buffers (~25% of attention activation memory). |
 
-### Hand-derived gradients (the critical-path work)
+### Hand-derived gradients (all verified in double precision)
 
 | Op | Forward | Backward |
 | --- | --- | --- |
-| matmul | `C = A·B` | `dA = dC·Bᵀ`, `dB = Aᵀ·dC` (both via BLAS) |
+| matmul | `C = A·B` | `dA = dC·Bᵀ`, `dB = Aᵀ·dC` |
+| matmul_bt | `C = A·Bᵀ` | `dA = dC·B`, `dB = dCᵀ·A` |
 | RMSNorm | `y = g⊙x/r`, `r = √(mean(x²)+ε)` | `s = Σ(dyᵢgᵢxᵢ)`; `dxᵢ = gᵢdyᵢ/r − xᵢs/(d·r³)`; `dgᵢ = dyᵢxᵢ/r` |
-| RoPE | per-pair rotation `R(θ)` | rotation is **orthogonal** ⇒ VJP is the same kernel with **negated angles** |
+| RoPE | per-pair rotation `R(θ)` | orthogonal ⇒ VJP is the same kernel with **negated angles** |
 | softmax | `y = softmax(x)` | `dx = y ⊙ (dy − Σ(dy⊙y))` |
 | SiLU | `y = x·σ(x)` | `dx = dy·σ(1 + x(1−σ))` |
 | SwiGLU | `h = silu(a)⊙b`, `a=x·Wg`, `b=x·Wu` | `da = dh⊙b⊙silu′(a)`, `db = dh⊙silu(a)`, then matmul rules |
-| Attention | `S=QKᵀ/√dₕ` (masked), `P=softmax(S)`, `O=PV` | `dV=Pᵀ·dO`; `dP=dO·Vᵀ`; `dS=softmax_bwd(P,dP)` **re-masked**; `dQ=dS·K/√dₕ`; `dK=dSᵀ·Q/√dₕ` |
-| Cross-entropy | fused log-softmax + NLL | `dlogits = (p − onehot)/(B·T)` |
+| Attention | `S=QKᵀ/√dₕ` (masked), `P=softmax(S)`, `O=PV` | `dV=Pᵀ·dO`; `dP=dO·Vᵀ`; `dS=softmax_bwd(P,dP)` **re-masked**, scale folded in; `dQ=dS·K`; `dK=dSᵀ·Q` |
+| Cross-entropy | fused log-softmax + NLL | `dlogits = (p − onehot)/n` |
 | Embedding | gather rows | scatter-add; **accumulates twice** under weight tying (D7) |
 
 ## Data Models
 
-### `.csllm` checkpoint (safetensors-like, mmap-able)
+### `.csllm` checkpoint (mmap-able)
 
 ```
-offset 0  : magic   "CSLLM\0\0\0"        (8 bytes)
-offset 8  : version uint32               (little-endian)
+offset 0  : magic "CSLLM\0\0\0"   (8 bytes)
+offset 8  : version    uint32     (little-endian)
 offset 12 : header_len uint32
-offset 16 : JSON header {
-              "config": { ...ModelConfig... },
-              "tensors": [{"name","dtype","shape","offset"}, ...]
-            }
-then      : 64-byte-aligned fp32 payload
+offset 16 : JSON header { "config": {...}, "tensors": [{"name","dtype","shape","offset"}, ...] }
+then      : payload, 64-byte aligned
 ```
 
 ### Model configs
 
 | Config | n_layer | n_head | n_embd | block | vocab | ffn_hidden | params |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `debug.json` | 2 | 2 | 64 | 32 | 512 | 192 | ~0.1 M |
-| `shakespeare.json` | 6 | 6 | 384 | 256 | 4096 | 1024 | **~12.2 M** |
+| `debug.json` | 2 | 2 | 64 | 32 | 512 | 192 | ~0.14 M |
+| `shakespeare.json` | 6 | 6 | 384 | 256 | 4096 | 1024 | **12,194,688** |
 
-`head_dim = n_embd / n_head = 64` (must be **even** for RoPE pairing).
-`ffn_hidden ≈ ⅔·4·n_embd`, rounded to a multiple of 64 — the standard SwiGLU sizing that
-keeps parameter count comparable to a 4× GELU MLP despite SwiGLU's third matrix.
-KV cache per session = `2 · n_layer · block · n_embd · 4 B` ≈ **4.5 MiB** at the 12M config.
+`head_dim = 64` (must be **even** for RoPE). `ffn_hidden ≈ ⅔·4·n_embd` rounded to a multiple of 64.
+Measured at the 12M config: activation arena **510 MB** at B=4/T=256, KV cache **4.7 MB** per session,
+**~0.28 s/step (≈3,600 tok/s)** for forward+backward+AdamW on 8 CPU threads.
 
-### Tokenizer artifacts
-`vocab.json` (id → token bytes, base64) and `merges.txt` (ordered merge rules) in `data/tokenizer/`.
+### Parameter names
+`tok_emb`, `blocks.{i}.attn_norm.gain`, `blocks.{i}.attn.{wq,wk,wv,wo}`,
+`blocks.{i}.ffn_norm.gain`, `blocks.{i}.ffn.{wg,wu,wd}`, `norm_f.gain`. Insertion-ordered,
+so checkpoints are byte-stable.
 
 ## Conventions
 
-- **C++**: C++20; headers `core/include/csllm/*.hpp`, one `.cpp` per header; `snake_case` functions,
-  `PascalCase` types, trailing `_` for in-place ops (`rope_`). No exceptions on the hot path.
-- **Python**: PEP 8, `ruff`, type hints throughout; dataclasses for config; no NumPy in the model path.
-- **Tests**: every C++ op needs (a) a NumPy forward oracle in `tests/reference.py` and
-  (b) a double-precision gradcheck entry — **both before the op is considered done**.
-- **Errors**: C++ throws `std::runtime_error` translated to Python exceptions by pybind11;
-  the gateway maps them to structured JSON error responses.
-- **Naming**: parameter tensors follow `blocks.{i}.attn.wq`, `blocks.{i}.ffn.wg`, `tok_emb`,
-  `norm_f.gain` — flat dotted keys in the checkpoint manifest.
+- **C++**: C++20; one `.cpp` per header; `snake_case` functions, `PascalCase` types, trailing `_`
+  for in-place ops. Ops are `template<typename T>` with explicit `f32`/`f64` instantiation.
+- **Python**: PEP 8, ruff-clean, type hints; no NumPy on the model path.
+- **Tests**: every op needs (a) a NumPy forward oracle in `tests/reference.py` and
+  (b) a double-precision gradcheck — both before the op counts as done.
+- **Errors**: C++ throws `csllm::Error`, translated to Python `RuntimeError` by pybind11.
 
 ## Open Questions
 
-1. **Thread-pool granularity** — parallelise attention over `B×H` only, or also tile the FFN?
-   Accelerate already threads GEMM internally; nesting our pool inside it may oversubscribe cores.
-   Measure before adding.
-2. **Streaming detokenization** — byte-level BPE can emit a token that is a partial UTF-8
-   sequence. The gateway must buffer incomplete code points rather than emit invalid UTF-8 in an
-   SSE frame. Decide the buffering policy in Phase 4.
-3. **Checkpoint dtype** — fp32 only for now; bf16 storage would halve file size but needs
-   conversion on load.
-4. Should `GenerationSession` support batched/continuous batching across requests, or stay
-   one-sequence-per-session? Currently the latter, for simplicity.
-5. Metal/NEON hand-written kernels — deferred to backlog; revisit only if CPU training proves
-   too slow at the 12M config.
+1. **Thread-pool granularity** — attention parallelises over `B×H` while Accelerate threads GEMM
+   internally. Not yet benchmarked for oversubscription; measure before tuning.
+2. **Streaming detokenization** — byte-level BPE can emit a partial UTF-8 sequence; the gateway must
+   buffer incomplete code points. Policy to be decided in Phase 4.
+3. **Activation memory** — 510 MB at B=4/T=256 with no recomputation. Gradient checkpointing or
+   tiled (flash-style) attention would cut it; deferred to backlog.
+4. **Checkpoint dtype** — fp32 only; bf16 storage would halve file size.
+5. Batched/continuous decoding across concurrent sessions — currently one sequence per session.

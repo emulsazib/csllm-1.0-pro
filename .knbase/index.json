@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-21T09:58:31.942Z",
+  "updatedAt": "2026-07-21T10:31:19.914Z",
   "files": {
     "prd": {
       "key": "prd",
@@ -39,9 +39,9 @@
       "key": "design",
       "path": "memory-bank/design.md",
       "exists": true,
-      "checksum": "5cd67ec4eaa0ae1b504d59bd2b847b0443791f36a23ba77fd9c259b075db4fb8",
-      "bytes": 8609,
-      "summary": "Interfaces, the hand-derived gradient formulas for every op, the .csllm format, and key decisions (RoPE/RMSNorm/SwiGLU, weight tying, double-precision gradcheck, GIL release).",
+      "checksum": "4385541c696efc685a941681a8871e75bf890ebdc89db82320c8968a493edf61",
+      "bytes": 9077,
+      "summary": "Implemented interfaces, the hand-derived gradient formulas, the .csllm format, and key decisions — updated to match the Phase 2 implementation.",
       "headings": [
         "Modules & Interfaces",
         "Key Decisions",
@@ -49,15 +49,15 @@
         "Conventions",
         "Open Questions"
       ],
-      "updatedAt": "2026-07-21T09:43:39.072Z"
+      "updatedAt": "2026-07-21T10:29:21.471Z"
     },
     "phase": {
       "key": "phase",
       "path": "memory-bank/phase.md",
       "exists": true,
-      "checksum": "ec746c1b67183bb58d63127a5b884b0acf4af3cc0b3930fb2315eac6d98e64b3",
-      "bytes": 3138,
-      "summary": "Phase 1 (scaffolding & build) complete and verified; awaiting user approval to begin Phase 2 (C++ core + bindings).",
+      "checksum": "bf3630b5e9174be9d5839d15ff040d25ed8ee78d56267304f0545c4a93c72d3f",
+      "bytes": 3746,
+      "summary": "Phases 1-2 complete and verified; awaiting user approval to begin Phase 3 (BPE tokenizer, data pipeline, training loop).",
       "headings": [
         "Current Phase",
         "Completed",
@@ -65,7 +65,7 @@
         "Next Up",
         "Backlog"
       ],
-      "updatedAt": "2026-07-21T09:58:08.716Z"
+      "updatedAt": "2026-07-21T10:30:22.979Z"
     },
     "rules": {
       "key": "rules",
@@ -86,16 +86,16 @@
       "key": "memory",
       "path": "memory-bank/memory.md",
       "exists": true,
-      "checksum": "7e1bed95f9a0c061fb2e0efdacc631dbc5027f3f4f865d6fc3363319a27e2856",
-      "bytes": 5486,
-      "summary": "Running knowledge base: Phase 1 (scaffolding) complete and verified; environment/build gotchas including the pybind11>=3.0 requirement for Python 3.14.",
+      "checksum": "47de8017bac88f831682eddbd498c1afc32aa910caa9f5e063a9b0b5726ed6b2",
+      "bytes": 6261,
+      "summary": "Running knowledge base: Phases 1-2 complete and verified (83 tests, full double-precision gradchecks, overfit-to-zero); environment and design gotchas for future agents.",
       "headings": [
         "Summary",
         "Recent Changes",
         "Learnings & Gotchas",
         "Known Issues"
       ],
-      "updatedAt": "2026-07-21T09:57:44.692Z"
+      "updatedAt": "2026-07-21T10:29:58.828Z"
     }
   }
 }

@@ -21,7 +21,6 @@ struct SamplingParams {
   f32 temperature = 1.0f;   // 0 => greedy argmax
   i32 top_k = 0;            // 0 => disabled
   f32 top_p = 1.0f;         // 1 => disabled
-  f32 repetition_penalty = 1.0f;
 };
 
 class Sampler {
