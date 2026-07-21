@@ -1,4 +1,6 @@
-.PHONY: help setup build rebuild test lint clean tokenizer train sample debug serve smoke
+.PHONY: help setup build rebuild test lint clean tokenizer train sample debug serve curl smoke
+
+PORT    ?= 8000
 
 PY      ?= /opt/homebrew/bin/python3.14
 VENV    := .venv
@@ -22,7 +24,8 @@ help:
 	@echo "  make train      Train the model    STEPS=$(STEPS) BATCH=$(BATCH) LR=$(LR)"
 	@echo "  make sample     Generate from data/model.csllm      PROMPT='$(PROMPT)'"
 	@echo "  make debug      Full tokenizer+train cycle on configs/debug.json (seconds)"
-	@echo "  make serve      Run the FastAPI gateway      [Phase 4]"
+	@echo "  make serve      Run the FastAPI gateway on PORT=$(PORT)"
+	@echo "  make curl       Stream a completion from a running gateway"
 	@echo "  make clean      Remove build artifacts"
 
 $(VENV):
@@ -74,7 +77,13 @@ debug:
 	    --out data/debug/model.csllm
 
 serve:
-	$(VENV)/bin/uvicorn gateway.main:app --reload --port 8000
+	$(VENV)/bin/uvicorn gateway.main:app --reload --port $(PORT)
+
+# End-to-end smoke test against a running gateway (make serve in another shell).
+curl:
+	curl -sN -X POST http://127.0.0.1:$(PORT)/generate \
+	    -H 'Content-Type: application/json' \
+	    -d '{"prompt":"$(PROMPT)\n","max_tokens":120,"temperature":0.8,"top_k":40}'
 
 clean:
 	rm -rf build dist *.egg-info .pytest_cache .ruff_cache

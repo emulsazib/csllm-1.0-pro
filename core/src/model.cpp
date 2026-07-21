@@ -336,6 +336,7 @@ struct GenerationSession::Impl {
   Sampler sampler;
   Arena scratch;
   std::vector<f32> logits;
+  std::vector<f32> sample_buf;
   i64 pos = 0;
 
   Impl(const Model<f32>& m, u64 seed)
@@ -484,6 +485,14 @@ const f32* GenerationSession::decode(i32 token) { return impl_->forward_token(to
 i32 GenerationSession::step(i32 token, const SamplingParams& p) {
   const f32* logits = impl_->forward_token(token);
   return impl_->sampler.sample(const_cast<f32*>(logits), impl_->model.config().vocab_size, p);
+}
+
+i32 GenerationSession::sample_last(const SamplingParams& p) {
+  CSLLM_CHECK(impl_->pos > 0, "sample_last() requires a prior prefill() or decode()");
+  // sample() scales logits in place, so work on a copy — otherwise a second
+  // call would apply the temperature twice.
+  impl_->sample_buf = impl_->logits;
+  return impl_->sampler.sample(impl_->sample_buf.data(), impl_->model.config().vocab_size, p);
 }
 
 void GenerationSession::reset() {

@@ -202,6 +202,52 @@ def test_generation_is_deterministic_for_a_fixed_seed(model):
     assert run(42) != run(43), "different seeds should diverge"
 
 
+def test_first_generated_token_continues_the_prompt(model):
+    """Regression: prefill() consumes the whole prompt, so the first token must
+    come from sample_last(), not step(prompt[-1]).
+
+    Using step(prompt[-1]) feeds the prompt's last token a SECOND time and
+    generates from a corrupted context. The bug is invisible in loss metrics and
+    produces plausible-looking text, so only this equivalence catches it.
+    """
+    prompt = np.array([[3, 14, 7, 1, 9]], dtype=np.int32)
+    expected = int(model.forward_logits(prompt)[-1].argmax())
+
+    session = core.GenerationSession(model, 0)
+    session.prefill(prompt[0], model.config.vocab_size)
+    greedy = core.SamplingParams(temperature=0.0)
+
+    assert session.sample_last(greedy) == expected
+    # sample_last must not advance the cache position.
+    assert session.position == prompt.shape[1]
+
+
+def test_sample_last_does_not_rescale_the_stored_logits(model):
+    """sample_last must work on a copy — sampling scales logits in place.
+
+    If it scaled the stored buffer, each call would divide by temperature again,
+    so the effective temperature would decay as T^k and the distribution would
+    collapse onto the argmax within a handful of calls. Reseeding between draws
+    isolates that from ordinary RNG variation.
+    """
+    session = core.GenerationSession(model, 0)
+    session.prefill(np.array([2, 5, 8], dtype=np.int32), model.config.vocab_size)
+    params = core.SamplingParams(temperature=0.5)
+
+    picks = set()
+    for seed in range(100):
+        session.reseed(seed)
+        picks.add(session.sample_last(params))
+
+    assert len(picks) > 5, f"distribution collapsed to {picks} — logits are being rescaled"
+
+
+def test_sample_last_before_prefill_raises(model):
+    session = core.GenerationSession(model, 0)
+    with pytest.raises(RuntimeError, match="requires a prior prefill"):
+        session.sample_last(core.SamplingParams())
+
+
 def test_greedy_sampling_picks_the_argmax(model):
     prompt = np.array([5, 6], dtype=np.int32)
     session = core.GenerationSession(model, 0)

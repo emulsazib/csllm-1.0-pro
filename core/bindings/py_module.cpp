@@ -527,6 +527,16 @@ PYBIND11_MODULE(_csllm_core, m) {
             return s.step(token, p);
           },
           py::arg("token"), py::arg("params"), "Decode one token and sample the next id")
+      .def(
+          "sample_last",
+          [](GenerationSession& s, const SamplingParams& p) {
+            py::gil_scoped_release release;
+            return s.sample_last(p);
+          },
+          py::arg("params"),
+          "Sample from the most recent logits without advancing. Use this for the "
+          "FIRST generated token after prefill() — step(prompt[-1]) would feed the "
+          "prompt's last token twice.")
       .def("reset", &GenerationSession::reset)
       .def("reseed", &GenerationSession::reseed, py::arg("seed"))
       .def_property_readonly("position", &GenerationSession::position)

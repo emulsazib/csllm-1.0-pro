@@ -77,8 +77,40 @@ Built in four approval-gated phases:
 - [x] **Phase 1** — scaffolding, CMake/scikit-build-core bridge, configs
 - [x] **Phase 2** — C++ core: tensors, tape autograd, RoPE/RMSNorm/SwiGLU/attention, AdamW, sampler,
       KV-cache decoding, `.csllm` checkpoints — *all gradients verified in float64*
-- [x] **Phase 3** — BPE tokenizer, data pipeline, training loop — *134 tests, model trained*
-- [ ] **Phase 4** — FastAPI gateway with SSE streaming
+- [x] **Phase 3** — BPE tokenizer, data pipeline, training loop — *model trained*
+- [x] **Phase 4** — FastAPI gateway with SSE streaming — *164 tests*
+
+### Serving
+
+```bash
+make serve       # uvicorn gateway.main:app
+make curl        # stream a completion
+```
+
+```
+POST /generate   prompt, max_tokens, temperature, top_k, top_p, seed, stream
+GET  /health     model metadata + live session count
+```
+
+```console
+$ curl -sN -X POST localhost:8000/generate -H 'Content-Type: application/json' \
+      -d '{"prompt":"KING RICHARD:\n","max_tokens":40,"seed":7}'
+data: {"text":"But","index":0,"finish_reason":null}
+data: {"text":" this","index":1,"finish_reason":null}
+...
+data: [DONE]
+```
+
+| Gateway measurement | Value |
+| --- | --- |
+| Time to first token | **19 ms** |
+| Throughput | ~565 tok/s single stream |
+| 4 concurrent streams | 1.95x one stream's wall-clock (not 4x — the event loop does not serialize) |
+| KV cache per session | 4.7 MB |
+
+Each request gets its own `GenerationSession`; weights are shared read-only. Per-token compute is
+dispatched through `asyncio.to_thread`, and because the bindings release the GIL the event loop keeps
+serving. Client disconnect aborts generation and frees the slot, so an abandoned tab cannot pin a core.
 
 ### Trained model
 

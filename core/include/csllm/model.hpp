@@ -127,6 +127,15 @@ class GenerationSession {
   // decode() + sample in one call; returns the chosen token id.
   i32 step(i32 token, const SamplingParams& p);
 
+  // Samples from the MOST RECENT logits without advancing the position, using
+  // this session's RNG stream.
+  //
+  // Required after prefill(): the prompt's last token has already been consumed,
+  // so calling step(prompt[-1]) would feed it a second time and generate from a
+  // corrupted context. The correct loop is:
+  //     prefill(prompt);  t = sample_last(p);  while (...) t = step(t, p);
+  i32 sample_last(const SamplingParams& p);
+
   void reset();
   void reseed(u64 seed);
 

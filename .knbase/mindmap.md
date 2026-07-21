@@ -32,7 +32,7 @@ mindmap
       Open Questions
     Phases & Roadmap
       ::icon(fa fa-info)
-      Phases 1-3 complete with a trained 12M model; awaiting user approval to begin Phase 4 FastAPI SSE gateway.
+      All four phases complete: C++ engine, trained 12M model, and a live SSE gateway 164 tests. Remaining work is backlog only.
       Current Phase
       Completed
       In Progress
@@ -47,7 +47,7 @@ mindmap
       Guardrails
     Project Memory
       ::icon(fa fa-info)
-      Running knowledge base: Phases 1-3 complete; a trained 12M model exists 1.41 nats/char; environment, engine, and training gotchas for future agents.
+      Running knowledge base: all four phases complete — C++ engine, trained 12M model, and a live SSE gateway; plus the environment/engine/training/serving gotchas future agents need.
       Summary
       Recent Changes
       Learnings & Gotchas
@@ -61,8 +61,8 @@ mindmap
 | prd | ok | Build CSLLM: a ~12M-param autoregressive Transformer from scratch — pure C++ engine with hand-written autograd, Python BPE + training loop, FastAPI SSE gateway. |
 | architecture | ok | Three-layer system: C++ engine (core/) compiled to a pybind11 module, shared Python package (csllm/) with BPE + config + data, and training (train/) and FastAPI (gateway/) entrypoints. |
 | design | ok | Implemented interfaces, the hand-derived gradient formulas, the .csllm format, and key decisions — updated to match the Phase 2 implementation. |
-| phase | ok | Phases 1-3 complete with a trained 12M model; awaiting user approval to begin Phase 4 (FastAPI SSE gateway). |
+| phase | ok | All four phases complete: C++ engine, trained 12M model, and a live SSE gateway (164 tests). Remaining work is backlog only. |
 | rules | ok | Hard rules: no PyTorch/autograd libraries ever, no op ships without a NumPy oracle and a double-precision gradcheck, phase gates require explicit user approval. |
-| memory | ok | Running knowledge base: Phases 1-3 complete; a trained 12M model exists (1.41 nats/char); environment, engine, and training gotchas for future agents. |
+| memory | ok | Running knowledge base: all four phases complete — C++ engine, trained 12M model, and a live SSE gateway; plus the environment/engine/training/serving gotchas future agents need. |
 
-_Updated: 2026-07-21T11:07:17.586Z_
+_Updated: 2026-07-21T11:18:51.693Z_

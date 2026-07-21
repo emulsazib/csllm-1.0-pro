@@ -49,10 +49,13 @@ def generate(model, tokenizer, prompt, max_tokens, temperature, top_k, top_p, se
     session.prefill(np.asarray(ids, dtype=np.int32), model.config.vocab_size)
     params = core.SamplingParams(temperature=temperature, top_k=top_k, top_p=top_p)
 
-    token = int(ids[-1])
+    # The first token comes from the prefill logits; step(ids[-1]) would feed
+    # the prompt's last token twice.
     out: list[int] = []
-    for _ in range(min(max_tokens, block - len(ids) - 1)):
-        token = session.step(token, params)
+    token = session.sample_last(params)
+    for i in range(min(max_tokens, block - len(ids) - 1)):
+        if i > 0:
+            token = session.step(token, params)
         out.append(token)
     return prompt + tokenizer.decode(out)
 

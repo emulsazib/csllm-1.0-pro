@@ -62,13 +62,18 @@ def main() -> None:
         sys.stdout.write(args.prompt)
         sys.stdout.flush()
 
-    token = int(prompt_ids[-1])
     generated: list[int] = []
     pending = b""  # bytes not yet at a code-point boundary
     start = time.time()
 
-    for _ in range(budget):
-        token = session.step(token, params)
+    # prefill() has already consumed the whole prompt, so the FIRST token comes
+    # from sample_last(). Calling step(prompt[-1]) here would feed the prompt's
+    # last token a second time and generate from a corrupted context.
+    token = session.sample_last(params)
+
+    for i in range(budget):
+        if i > 0:
+            token = session.step(token, params)
         generated.append(token)
         if args.stream:
             pending += tokenizer.decode_bytes([token])
