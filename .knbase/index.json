@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-21T10:31:19.914Z",
+  "updatedAt": "2026-07-21T11:07:17.585Z",
   "files": {
     "prd": {
       "key": "prd",
@@ -55,9 +55,9 @@
       "key": "phase",
       "path": "memory-bank/phase.md",
       "exists": true,
-      "checksum": "bf3630b5e9174be9d5839d15ff040d25ed8ee78d56267304f0545c4a93c72d3f",
-      "bytes": 3746,
-      "summary": "Phases 1-2 complete and verified; awaiting user approval to begin Phase 3 (BPE tokenizer, data pipeline, training loop).",
+      "checksum": "87d09a08a75037d09692089d9756acd01025a14718dcdb094e13e1e64d1d27c8",
+      "bytes": 3715,
+      "summary": "Phases 1-3 complete with a trained 12M model; awaiting user approval to begin Phase 4 (FastAPI SSE gateway).",
       "headings": [
         "Current Phase",
         "Completed",
@@ -65,7 +65,7 @@
         "Next Up",
         "Backlog"
       ],
-      "updatedAt": "2026-07-21T10:30:22.979Z"
+      "updatedAt": "2026-07-21T11:06:53.239Z"
     },
     "rules": {
       "key": "rules",
@@ -86,16 +86,16 @@
       "key": "memory",
       "path": "memory-bank/memory.md",
       "exists": true,
-      "checksum": "47de8017bac88f831682eddbd498c1afc32aa910caa9f5e063a9b0b5726ed6b2",
-      "bytes": 6261,
-      "summary": "Running knowledge base: Phases 1-2 complete and verified (83 tests, full double-precision gradchecks, overfit-to-zero); environment and design gotchas for future agents.",
+      "checksum": "fd8ea9be0b137b81e190959bbab18482e42e84a8c4bdd905a19be91d3653e7c5",
+      "bytes": 6424,
+      "summary": "Running knowledge base: Phases 1-3 complete; a trained 12M model exists (1.41 nats/char); environment, engine, and training gotchas for future agents.",
       "headings": [
         "Summary",
         "Recent Changes",
         "Learnings & Gotchas",
         "Known Issues"
       ],
-      "updatedAt": "2026-07-21T10:29:58.828Z"
+      "updatedAt": "2026-07-21T11:06:29.901Z"
     }
   }
 }

@@ -44,6 +44,19 @@ drift from the trained one.
 make setup     # create .venv and compile the C++ extension
 make smoke     # print BLAS backend, thread count, parameter count
 make test      # run the suite
+
+# train the tokenizer + binarize the corpus, then train the model
+python -m train.train_tokenizer --config configs/shakespeare.json
+python -m train.train --config configs/shakespeare.json --steps 3000 --batch-size 8 --lr 1e-3
+```
+
+Iterate on `configs/debug.json` first — the whole pipeline runs in seconds there:
+
+```bash
+python -m train.train_tokenizer --config configs/debug.json \
+    --out data/tokenizer-debug --data-dir data/debug
+python -m train.train --config configs/debug.json --steps 300 --batch-size 16 --lr 3e-3 \
+    --tokenizer-dir data/tokenizer-debug --data-dir data/debug --out data/debug/model.csllm
 ```
 
 ## Verification
@@ -63,12 +76,36 @@ Built in four approval-gated phases:
 
 - [x] **Phase 1** — scaffolding, CMake/scikit-build-core bridge, configs
 - [x] **Phase 2** — C++ core: tensors, tape autograd, RoPE/RMSNorm/SwiGLU/attention, AdamW, sampler,
-      KV-cache decoding, `.csllm` checkpoints — *83 tests, all gradients verified in float64*
-- [ ] **Phase 3** — BPE tokenizer, data pipeline, training loop
+      KV-cache decoding, `.csllm` checkpoints — *all gradients verified in float64*
+- [x] **Phase 3** — BPE tokenizer, data pipeline, training loop — *134 tests, model trained*
 - [ ] **Phase 4** — FastAPI gateway with SSE streaming
 
-Measured at the 12M config (8 CPU threads): **~0.28 s/step** (≈3,600 tok/s) for
-forward+backward+AdamW at B=4/T=256, 510 MB activation arena, 4.7 MB KV cache per session.
+### Trained model
+
+The 12M config trains on TinyShakespeare in **11.9 minutes** on 8 CPU threads
+(1500 steps, B=8 x T=256, ~4,400 tok/s):
+
+| Metric | Value |
+| --- | --- |
+| Validation loss | 4.39 / token |
+| **Nats per character** | **1.41** (2.03 bits/char) |
+| Perplexity | 80.5 |
+| vs. uniform ln(4096) | 47% better |
+
+```
+KING RICHARD:
+DUCHESS OF YORK:
+O, thy lord, it was my mother.
+O sir, I hear, I'll not have a king.
+
+DUKE OF AUMERLE:
+My husband's good, poor Clarence, to my heart.
+```
+
+Two notes on reading these numbers. Per-token loss is **not** comparable across vocabularies —
+divide by chars/token (3.11 here) to get nats/char, which is what char-level baselines report.
+And with 12M parameters against 310k training tokens the model overfits hard (train/val gap +1.26),
+so best-validation checkpointing is what makes the run usable.
 
 ## Ground rules
 

@@ -1,10 +1,14 @@
-.PHONY: help setup build rebuild test lint clean tokenizer train serve smoke
+.PHONY: help setup build rebuild test lint clean tokenizer train sample debug serve smoke
 
 PY      ?= /opt/homebrew/bin/python3.14
 VENV    := .venv
 VPY     := $(VENV)/bin/python
 VPIP    := $(VENV)/bin/pip
-CONFIG  ?= configs/debug.json
+CONFIG  ?= configs/shakespeare.json
+STEPS   ?= 3000
+BATCH   ?= 8
+LR      ?= 1e-3
+PROMPT  ?= KING RICHARD:
 
 help:
 	@echo "CSLLM — build targets"
@@ -14,8 +18,10 @@ help:
 	@echo "  make smoke      Print build info (BLAS backend, threads, params)"
 	@echo "  make test       Run the pytest suite"
 	@echo "  make lint       ruff check + format --check"
-	@echo "  make tokenizer  Train the BPE tokenizer      [Phase 3]"
-	@echo "  make train      Train the model  CONFIG=$(CONFIG)   [Phase 3]"
+	@echo "  make tokenizer  Train the BPE tokenizer + binarize  CONFIG=$(CONFIG)"
+	@echo "  make train      Train the model    STEPS=$(STEPS) BATCH=$(BATCH) LR=$(LR)"
+	@echo "  make sample     Generate from data/model.csllm      PROMPT='$(PROMPT)'"
+	@echo "  make debug      Full tokenizer+train cycle on configs/debug.json (seconds)"
 	@echo "  make serve      Run the FastAPI gateway      [Phase 4]"
 	@echo "  make clean      Remove build artifacts"
 
@@ -53,7 +59,19 @@ tokenizer:
 	$(VPY) -m train.train_tokenizer --config $(CONFIG)
 
 train:
-	$(VPY) -m train.train --config $(CONFIG)
+	$(VPY) -u -m train.train --config $(CONFIG) --steps $(STEPS) --batch-size $(BATCH) --lr $(LR)
+
+sample:
+	$(VPY) -m train.sample --prompt "$(PROMPT)" --stream
+
+# The fast feedback loop: whole pipeline end-to-end in a few seconds.
+debug:
+	$(VPY) -m train.train_tokenizer --config configs/debug.json \
+	    --out data/tokenizer-debug --data-dir data/debug
+	$(VPY) -u -m train.train --config configs/debug.json --steps 300 --batch-size 16 \
+	    --lr 3e-3 --min-lr 3e-4 --warmup 30 --eval-every 100 --eval-iters 10 \
+	    --tokenizer-dir data/tokenizer-debug --data-dir data/debug \
+	    --out data/debug/model.csllm
 
 serve:
 	$(VENV)/bin/uvicorn gateway.main:app --reload --port 8000

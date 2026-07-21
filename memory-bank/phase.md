@@ -2,61 +2,66 @@
 
 ## Current Phase
 
-**Phase 2 — C++ Core + Bindings: COMPLETE.**
-The engine trains and generates. 83 tests pass, 0 compiler warnings, ruff clean; every hand-derived
-backward is confirmed by double-precision finite differences, and the model overfits one batch to
-~0 loss. **Awaiting explicit user approval to start Phase 3.**
+**Phase 3 — Tokenizer, Data & Training Loop: COMPLETE.**
+A trained model exists at `data/model.csllm` (12,194,688 params, val **4.39/token = 1.41 nats/char**)
+producing coherent Shakespearean dialogue. 134 tests pass, ruff clean.
+**Awaiting explicit user approval to start Phase 4.**
 
 ## Completed
 
 **Phase 1 — Scaffolding & build system**
-- [x] knbase governance; environment audit; `brew install cmake`; `git init`.
-- [x] `CMakeLists.txt` (C++20, Accelerate + naive fallback, three-tier pybind11 discovery),
+- [x] knbase governance, environment audit, `cmake`, `git init`.
+- [x] `CMakeLists.txt` (C++20, Accelerate + fallback, three-tier pybind11 discovery),
       `pyproject.toml` via scikit-build-core, `Makefile`, configs, `README.md`.
 
 **Phase 2 — C++ core + bindings**
-- [x] Arena allocator, `Tensor<T>`, tape autograd (`NoGradGuard`, reachability walk — no sort needed).
-- [x] Ops with hand-derived backwards: `matmul`, `matmul_bt`, `add`, `rmsnorm`, `rope`,
-      `softmax_causal`, `silu`, `swiglu`, `embedding`, fused `cross_entropy`.
-- [x] Fused causal multi-head attention with RoPE; backward re-masks `dS`; buffer aliasing saves ~25%.
-- [x] Pre-norm block stack, weight-tied `lm_head`, GPT-2 style init with 1/√(2L) residual scaling.
-- [x] AdamW with decoupled decay (skipping 1-D gains) + global-norm clipping; cosine LR schedule.
-- [x] Sampler: temperature → top-k → softmax → top-p → seeded multinomial.
-- [x] Minimal JSON reader/writer; mmap-able `.csllm` checkpoints.
-- [x] Incremental KV-cache decode path, cross-checked against the full-sequence forward.
-- [x] pybind11 surface with GIL released on all compute; per-op gradcheck harness; **f64 `Model`**.
-- [x] `tests/reference.py` NumPy oracles; `test_ops.py` (18), `test_gradcheck.py` (24),
-      `test_model.py` (17), `test_sampler.py` (11), `test_build.py` (13).
-- [x] **Verified:** forwards match NumPy to 1e-11; backwards match f64 finite differences (~2e-10
-      against gradients of magnitude ~1; a 1% perturbation is detected). Overfit: 2.803 → 0.000043
-      in 300 steps, all 16 target tokens reproduced. 12M config: 0.28 s/step (~3,600 tok/s) at
-      B=4/T=256, 510 MB arena, 4.7 MB KV cache, init loss 8.337 > ln(4096)=8.318.
+- [x] Arena, `Tensor<T>`, tape autograd; ten ops with hand-derived backwards; fused causal MHA with
+      RoPE; pre-norm block stack with weight tying; AdamW + clipping; sampler; JSON; `.csllm`;
+      KV-cache decode; pybind11 surface with GIL released.
+- [x] Verified: forwards match NumPy to 1e-11; **all backwards match float64 finite differences**;
+      overfit-one-batch 2.803 → 0.000043.
+
+**Phase 3 — Tokenizer, data & training loop**
+- [x] `csllm/tokenizer.py` — byte-level BPE, incremental merge training (inverted pair→word index):
+      3,840 merges over 1.1 MB in **1.9s**; lossless round-trip on the full corpus, emoji, CJK,
+      control bytes, and BMP fuzzing.
+- [x] `csllm/data.py` — TinyShakespeare download, uint16 binarization (344,120 tokens @ 3.24
+      chars/token), 90/10 split, batch sampler.
+- [x] `train/train_tokenizer.py`, `train/train.py` (AdamW, cosine+warmup, grad clipping, periodic
+      eval, best-val checkpointing, sampling, `--resume`), `train/sample.py` (streaming with
+      UTF-8-boundary buffering).
+- [x] `tests/test_tokenizer.py` (44) + `tests/test_training.py` (7) → **134 total**.
+- [x] Makefile targets: `tokenizer`, `train`, `sample`, `debug`.
+- [x] **Trained the 12M model:** 1500 steps, B=8×T=256, lr 1e-3→5e-5, **11.9 min**, ~4,400 tok/s.
+      Best val **4.2996** at step 1000 → 1.41 nats/char, 2.03 bits/char, perplexity 80.5.
+      *A 3000-step schedule scored only 4.4714; matching the schedule to the actual run length was
+      worth 3.8% in half the wall-clock.*
 
 ## In Progress
 
-Nothing — Phase 2 is closed and the project is paused at the approval gate.
+Nothing — Phase 3 is closed and the project is paused at the approval gate.
 
 ## Next Up
 
-1. **Phase 3 — Tokenizer, data & training loop.**
-   - `csllm/tokenizer.py`: byte-level BPE (GPT-2 style regex pre-split, iterative pair merges to
-     vocab 4096), `save`/`load` as `vocab.json` + `merges.txt`, lossless round-trip on arbitrary UTF-8.
-   - `csllm/data.py`: fetch TinyShakespeare, encode once to a `uint16` memmap, 90/10 split, batch sampler.
-   - `train/train.py`: AdamW (lr 3e-4, cosine + warmup, wd 0.1, clip 1.0), periodic validation,
-     sample generation, resumable `.csllm` checkpoints.
-   - Validate on `configs/debug.json` first, then the real run to val loss ≈ 1.5.
-2. **Phase 4 — FastAPI gateway.** Lifespan model load, Pydantic-validated `/generate`, SSE streaming,
-   per-request `GenerationSession`, `asyncio.to_thread` dispatch, disconnect handling.
+1. **Phase 4 — FastAPI gateway.**
+   - Lifespan loads `data/model.csllm` (mmap) + `data/tokenizer/` once at startup.
+   - `POST /generate` with Pydantic v2 bounds on prompt, max_tokens, temperature, top_k, top_p, seed.
+   - **SSE streaming** via `EventSourceResponse`, terminating with `[DONE]`.
+   - Per-request `GenerationSession` (private 4.7 MB KV cache); per-token compute dispatched through
+     `asyncio.to_thread` (the bindings already release the GIL); `Semaphore` caps concurrency.
+   - **Buffer partial UTF-8 sequences** — reuse the byte-buffering logic proven in `train/sample.py`.
+   - Abort generation on `await request.is_disconnected()`.
+   - `GET /health` + structured errors; `tests/test_gateway.py` via httpx ASGI.
 
 *Each phase stops for explicit user approval before the next begins.*
 
 ## Backlog
 
-- Gradient checkpointing / flash-style tiled attention to cut the 510 MB activation footprint.
-- Benchmark thread-pool granularity against Accelerate's internal threading (oversubscription risk).
-- Metal / hand-written NEON kernels for the hot loops.
-- bf16 checkpoint storage; KV-cache quantization for longer contexts.
+- Regularization (dropout) — the model overfits 310k tokens badly (train/val gap +1.26).
+- Persist Adam moments so `--resume` is exact.
+- Gradient checkpointing / flash-style tiled attention to cut the ~1.5 GB arena at B=8/T=256.
+- Benchmark thread-pool granularity against Accelerate's internal threading.
+- Metal / hand-written NEON kernels; bf16 checkpoints; KV-cache quantization.
 - Continuous/batched decoding across concurrent gateway requests.
 - Larger corpora (TinyStories, WikiText-2) and a bigger vocab.
-- Streaming-detokenization policy for partial UTF-8 sequences (`design.md` Open Questions #2).
 - Benchmark suite: tokens/sec for training and inference versus a NumPy baseline.
