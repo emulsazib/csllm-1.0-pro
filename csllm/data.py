@@ -11,6 +11,7 @@ widens to int32 at the last moment because that is what the C++ binding takes.
 from __future__ import annotations
 
 import urllib.request
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -21,8 +22,10 @@ __all__ = [
     "TINYSHAKESPEARE_URL",
     "binarize",
     "download_tinyshakespeare",
+    "encode_documents",
     "get_batch",
     "load_split",
+    "prepare_dataset",
 ]
 
 TINYSHAKESPEARE_URL = (
@@ -73,6 +76,63 @@ def binarize(
     print(
         f"binarized {len(text):,} chars -> {len(ids):,} tokens "
         f"({ratio:.2f} chars/token); train={split:,} val={len(ids) - split:,}"
+    )
+    return train_path, val_path
+
+
+def encode_documents(documents: Iterable[str], tokenizer: BPETokenizer) -> np.ndarray:
+    """Encode a document stream into one uint16 id array.
+
+    Documents are joined with the tokenizer's end-of-text id when it has one.
+    Without a separator, a training window sampled across a document boundary
+    would ask the model to predict the start of an unrelated document from the
+    end of the previous one — teaching it a transition that does not exist.
+
+    A separator is only inserted BETWEEN documents, never trailing, so a
+    single-document corpus is byte-identical to ``binarize``.
+    """
+    eot = tokenizer.eot_id
+    chunks: list[np.ndarray] = []
+    for i, doc in enumerate(documents):
+        if i and eot is not None:
+            chunks.append(np.array([eot], dtype=np.uint16))
+        chunks.append(np.asarray(tokenizer.encode(doc), dtype=np.uint16))
+    if not chunks:
+        return np.zeros(0, dtype=np.uint16)
+    return np.concatenate(chunks)
+
+
+def prepare_dataset(
+    paths: Sequence[str | Path],
+    tokenizer: BPETokenizer,
+    out_dir: str | Path = DATA_DIR,
+    val_fraction: float = 0.1,
+    **plugin_options,
+) -> tuple[Path, Path]:
+    """Read files through the dataset registry and write train/val splits.
+
+    The registry picks a reader per extension, so this works for any format a
+    plugin covers. See ``datasets/``.
+    """
+    from datasets import iter_documents  # local: keeps `datasets` optional for the gateway
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    if tokenizer.vocab_size > 65536:
+        raise ValueError(f"vocab_size {tokenizer.vocab_size} exceeds what uint16 can store")
+
+    ids = encode_documents(iter_documents(paths, **plugin_options), tokenizer)
+    if len(ids) < 2:
+        raise ValueError("dataset produced fewer than 2 tokens; check the files and plugin options")
+
+    split = int(len(ids) * (1.0 - val_fraction))
+    train_path, val_path = out / "train.bin", out / "val.bin"
+    ids[:split].tofile(train_path)
+    ids[split:].tofile(val_path)
+    print(
+        f"prepared {len(paths)} file(s) -> {len(ids):,} tokens; "
+        f"train={split:,} val={len(ids) - split:,}"
     )
     return train_path, val_path
 

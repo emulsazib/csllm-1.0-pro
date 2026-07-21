@@ -2,62 +2,63 @@
 
 ## Current Phase
 
-**COMPLETE — all four phases delivered.**
-A ~12M-parameter Transformer built from scratch in C++, trained on TinyShakespeare, and served over
-SSE. **164 tests pass, 0 compiler warnings, ruff clean.** Remaining items are backlog, not scope.
+**CSLLM 2.0 Phase 1 — Dataset Plugins & Export: COMPLETE.**
+224 tests pass, 0 compiler warnings, ruff clean. The real 12M model exports to a portable bundle
+that is bitwise identical to the live engine and readable without torch.
+**Awaiting explicit user approval to start 2.0 Phase 2.**
 
 ## Completed
 
-**Phase 1 — Scaffolding & build system**
-- [x] `CMakeLists.txt` (C++20, Accelerate + naive fallback, three-tier pybind11 discovery),
-      `pyproject.toml` via scikit-build-core, `Makefile`, configs, `README.md`, knbase governance.
+**CSLLM 1.0 (all four phases)**
+- [x] C++20 engine: arena, `Tensor<T>`, tape autograd, ten ops with hand-derived backwards, fused
+      causal MHA with RoPE, weight-tied block stack, AdamW, sampler, `.csllm` checkpoints,
+      KV-cache decode. All gradients verified in float64.
+- [x] Byte-level BPE, TinyShakespeare pipeline, training loop. **Trained model: 11.9 min,
+      val 4.39/token = 1.41 nats/char.**
+- [x] FastAPI SSE gateway: TTFT **19 ms**, 4 concurrent streams at 1.95x, disconnect abort.
 
-**Phase 2 — C++ core + bindings**
-- [x] Arena, `Tensor<T>`, tape autograd; ten ops with hand-derived backwards; fused causal MHA with
-      RoPE; pre-norm block stack with weight tying; AdamW + clipping; sampler; JSON; `.csllm`;
-      KV-cache decode; pybind11 surface with the GIL released on all compute.
-- [x] Verified: forwards match NumPy oracles to 1e-11; **all backwards match float64 finite
-      differences**; overfit-one-batch 2.803 → 0.000043.
-
-**Phase 3 — Tokenizer, data & training loop**
-- [x] Byte-level BPE with incremental merge training (3,840 merges over 1.1 MB in **1.9s**), lossless
-      round-trip on emoji/CJK/control bytes/BMP fuzz; TinyShakespeare → uint16 memmap; AdamW loop with
-      cosine+warmup, clipping, best-val checkpointing, `--resume`; `train/sample.py`.
-- [x] **Trained the 12M model:** 1500 steps in **11.9 min**, best val **4.2996/token**
-      = 1.41 nats/char, 2.03 bits/char, perplexity 80.5.
-
-**Phase 4 — FastAPI gateway**
-- [x] Lifespan loads model (mmap) + tokenizer once; `POST /generate` with Pydantic v2 bounds and
-      `extra="forbid"`; SSE streaming terminated with `[DONE]`; non-streaming JSON mode;
-      `GET /health` with live session count.
-- [x] Per-request `GenerationSession` (private 4.7 MB KV cache), `asyncio.to_thread` dispatch,
-      concurrency semaphore with timeout → 503, UTF-8 boundary buffering, disconnect abort.
-- [x] **Fixed a latent generation bug**: `prefill()` + `step(prompt[-1])` fed the prompt's last token
-      twice. Added `sample_last()`, fixed both callers, added regression tests.
-- [x] **Measured live:** TTFT **19 ms**, ~565 tok/s single stream, 4 concurrent streams in 1.95x one
-      stream's wall-clock, disconnect frees the slot within 0.5 s, all invalid requests → 422.
+**CSLLM 2.0 Phase 1 — Datasets & export**
+- [x] `datasets/`: `DatasetPlugin` ABC with `__init_subclass__` auto-registration, extension-keyed
+      registry, `discover()` / `describe()` / `iter_documents()`.
+- [x] Built-ins: `.txt`/`.md` (whole or blank-line), `.jsonl`/`.ndjson`, `.csv`/`.tsv`.
+      All malformed input fails with the file name and line number.
+- [x] Tokenizer **optional** special tokens — inert unless `allow_special=True`, ids persisted
+      explicitly, single-document behaviour byte-identical to before.
+- [x] `encode_documents()` + `prepare_dataset()` — separator BETWEEN documents only.
+- [x] `csllm/export.py` → `model.safetensors` + `tokenizer.json` + `config.json`; `make export`,
+      `make datasets`.
+- [x] **Verified:** 56 tensors / 12,194,688 params, **max abs difference 0.0** vs the live engine,
+      bundle consumable with numpy+safetensors alone, `torch` never imported.
 
 ## In Progress
 
-Nothing. The project meets every goal in `prd.md`.
+Nothing — Phase 1 is closed and the project is paused at the approval gate.
 
 ## Next Up
 
-No committed work. If the project is picked up again, the highest-value items are:
+1. **2.0 Phase 2 — Telemetry & configuration API.**
+   - **C++ first (one rebuild for Phases 2-4):** `set_capture_attention()` / `last_attention()` on
+     `GenerationSession` (copy `sc[t]*inv` at [model.cpp:437](core/src/model.cpp)); bind the
+     currently-unbound `decode()`; add `filtered_distribution()` so the UI's probability chart
+     cannot drift from the real sampler.
+   - `train/train.py --emit-jsonl --run-id`; `gateway/telemetry.py` `TrainingSupervisor`
+     (subprocess + per-client queue fan-out); `POST /train/{start,stop}`, `GET /train/status`,
+     `WS /ws/train`.
+   - `POST /configure_model` validating through the existing C++ `ModelConfig.validate()`, writing
+     `configs/versions/`, returning `num_params` and `estimate_activation_bytes`.
+2. **2.0 Phase 3 — Tokenize/embed/probability UI** (Vite + React + TS in `web/`).
+3. **2.0 Phase 4 — R3F attention animation + training dashboard.**
 
-1. **Regularization (dropout)** — the model overfits 310k tokens badly (train/val gap +1.26); this
-   would buy the largest quality improvement per unit effort.
-2. **Continuous/batched decoding** across concurrent sessions — would turn today's 1.95x concurrency
-   scaling into something closer to linear.
-3. **Gradient checkpointing** — the ~1.5 GB activation arena at B=8/T=256 is what caps batch size.
+*Each phase stops for explicit user approval before the next begins.*
 
 ## Backlog
 
+- Regularization (dropout) — train/val gap is +1.26.
+- Continuous/batched decoding across concurrent sessions (would lift 1.95x toward linear).
+- Gradient checkpointing — the ~1.5 GB arena at B=8/T=256 caps batch size.
 - Persist Adam moments so `--resume` is exact.
-- Benchmark thread-pool granularity against Accelerate's internal threading (oversubscription risk).
-- Metal / hand-written NEON kernels for the hot loops.
-- bf16 checkpoint storage; KV-cache quantization for longer contexts.
-- Larger corpora (TinyStories, WikiText-2) and a bigger vocab.
-- Flash-attention-style tiled attention to cut O(T²) activation memory.
-- Benchmark suite: tokens/sec for training and inference versus a NumPy baseline.
-- Gateway auth / rate limiting (explicit non-goal in `prd.md`, but needed for real exposure).
+- Benchmark thread-pool granularity against Accelerate's internal threading.
+- Metal / NEON kernels; bf16 checkpoints; KV-cache quantization.
+- Larger corpora and a bigger vocab; retrain with an EOT token now that multi-document
+  datasets are supported.
+- Gateway auth / rate limiting (explicit non-goal in `prd.md`).

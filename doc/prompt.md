@@ -70,3 +70,37 @@ Please provide the implementation step-by-step. Stop and wait for my approval af
 *   Implement a `/generate` endpoint that accepts inference parameters, runs the forward pass, and streams the token predictions back asynchronously.
 
 Start by acknowledging this prompt, outlining your understanding of the PyTorch C++ extension pipeline, and outputting the Phase 1 directory structure and `setup.py`.
+
+
+# AI Infrastructure
+
+You are an expert Full-Stack AI Infrastructure Engineer and Data Visualization Architect. We are expanding a custom Large Language Model (LLM) built from scratch (C++ backend, PyTorch training loop, and a FastAPI gateway). 
+
+Your objective is to design and implement a comprehensive suite of new features, including a dataset management system, a real-time visual diagnostic web application, a model export pipeline, and a dynamic model configuration system.
+
+### Tech Stack Additions:
+*   **Backend:** FastAPI (with WebSockets for real-time logs and telemetry).
+*   **Frontend:** React with Three.js/React Three Fiber (for real-time Transformer node/graph animation) and Chart.js/D3.js for probability charts and training loss curves.
+*   **Model Serialization:** Safetensors or PyTorch `.pt` format for exporting.
+
+### Execution Plan & Deliverables:
+Please implement this iteratively. Wait for my approval after completing each phase before writing code for the next.
+
+**Phase 1: Dataset Plugin & Model Export Module**
+*   **Dataset Directory:** Create a `datasets/` directory structure with a plugin interface (e.g., a Python base class) so users can easily drop in `.txt`, `.jsonl`, or `.csv` files, and the `DataLoader` will automatically parse and chunk the text.
+*   **Export Pipeline:** Write a Python utility script/API endpoint that serializes the trained model weights and vocabulary into a standalone, exportable format (like `.safetensors` or `.pt`) so it can be deployed anywhere.
+
+**Phase 2: Backend Telemetry & Configuration API**
+*   **WebSockets for Training:** Create a FastAPI WebSocket endpoint that streams real-time training logs, epoch progress, and loss metrics.
+*   **Versioning & Configuration:** Create an API endpoint (`/configure_model`) that accepts hyperparameters (vocab size, context window, number of layers, hidden dimensions, heads). This endpoint must generate a new versionized configuration file and initialize a fresh model build.
+
+**Phase 3: Web App - Tokenization, Embeddings & Probabilities UI**
+*   Write the React frontend components to interact with the LLM inference pipeline:
+    *   **Tokenize & Embed Feedback:** A UI that takes a prompt, highlights the generated token chunks, and displays a heatmap or raw vector representation of the resulting embeddings.
+    *   **Probabilities & Sampling:** An interactive playground with sliders for Temperature, Top-K, and Top-p. The UI must display a live bar chart of the top token probabilities before the final sample is chosen.
+
+**Phase 4: Web App - Real-Time Transformer Animation & Logs**
+*   **Transformer Graph Animation:** Build a React Three Fiber or D3.js component that visually represents the Transformer architecture (Query, Key, Value matrices and Attention Heads). When a prompt is processed, animate the information flow and attention weights in real-time.
+*   **Training Dashboard:** Build a dashboard view that subscribes to the WebSocket endpoint from Phase 2, displaying real-time loss curves and standard output logs.
+
+Start by acknowledging this prompt and outputting the exact directory structure required to accommodate the new React frontend, the `datasets/` plugin system, and the new FastAPI WebSocket routes.

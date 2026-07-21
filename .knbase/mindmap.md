@@ -32,7 +32,7 @@ mindmap
       Open Questions
     Phases & Roadmap
       ::icon(fa fa-info)
-      All four phases complete: C++ engine, trained 12M model, and a live SSE gateway 164 tests. Remaining work is backlog only.
+      CSLLM 1.0 complete; 2.0 Phase 1 dataset plugins + safetensors export complete; awaiting approval for 2.0 Phase 2 telemetry + config API + attention capture.
       Current Phase
       Completed
       In Progress
@@ -47,7 +47,7 @@ mindmap
       Guardrails
     Project Memory
       ::icon(fa fa-info)
-      Running knowledge base: all four phases complete — C++ engine, trained 12M model, and a live SSE gateway; plus the environment/engine/training/serving gotchas future agents need.
+      Running knowledge base: CSLLM 1.0 complete engine, trained model, SSE gateway plus 2.0 Phase 1 dataset plugins, special tokens, safetensors export; all environment/engine/training/serving/data gotchas.
       Summary
       Recent Changes
       Learnings & Gotchas
@@ -61,8 +61,8 @@ mindmap
 | prd | ok | Build CSLLM: a ~12M-param autoregressive Transformer from scratch — pure C++ engine with hand-written autograd, Python BPE + training loop, FastAPI SSE gateway. |
 | architecture | ok | Three-layer system: C++ engine (core/) compiled to a pybind11 module, shared Python package (csllm/) with BPE + config + data, and training (train/) and FastAPI (gateway/) entrypoints. |
 | design | ok | Implemented interfaces, the hand-derived gradient formulas, the .csllm format, and key decisions — updated to match the Phase 2 implementation. |
-| phase | ok | All four phases complete: C++ engine, trained 12M model, and a live SSE gateway (164 tests). Remaining work is backlog only. |
+| phase | ok | CSLLM 1.0 complete; 2.0 Phase 1 (dataset plugins + safetensors export) complete; awaiting approval for 2.0 Phase 2 (telemetry + config API + attention capture). |
 | rules | ok | Hard rules: no PyTorch/autograd libraries ever, no op ships without a NumPy oracle and a double-precision gradcheck, phase gates require explicit user approval. |
-| memory | ok | Running knowledge base: all four phases complete — C++ engine, trained 12M model, and a live SSE gateway; plus the environment/engine/training/serving gotchas future agents need. |
+| memory | ok | Running knowledge base: CSLLM 1.0 complete (engine, trained model, SSE gateway) plus 2.0 Phase 1 (dataset plugins, special tokens, safetensors export); all environment/engine/training/serving/data gotchas. |
 
-_Updated: 2026-07-21T11:18:51.693Z_
+_Updated: 2026-07-21T11:48:11.702Z_

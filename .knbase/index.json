@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-21T11:18:51.693Z",
+  "updatedAt": "2026-07-21T11:48:11.702Z",
   "files": {
     "prd": {
       "key": "prd",
@@ -55,9 +55,9 @@
       "key": "phase",
       "path": "memory-bank/phase.md",
       "exists": true,
-      "checksum": "bc76c5fce3d203021042fc0d46833d71054a0a202b0c808df9e2b079c0d694a9",
-      "bytes": 3483,
-      "summary": "All four phases complete: C++ engine, trained 12M model, and a live SSE gateway (164 tests). Remaining work is backlog only.",
+      "checksum": "fe588c154cf8a35ec1ec3587e8dc2fa42c0b8e28c79b64bc3fce280d0ec48e44",
+      "bytes": 3466,
+      "summary": "CSLLM 1.0 complete; 2.0 Phase 1 (dataset plugins + safetensors export) complete; awaiting approval for 2.0 Phase 2 (telemetry + config API + attention capture).",
       "headings": [
         "Current Phase",
         "Completed",
@@ -65,7 +65,7 @@
         "Next Up",
         "Backlog"
       ],
-      "updatedAt": "2026-07-21T11:18:41.943Z"
+      "updatedAt": "2026-07-21T11:47:43.470Z"
     },
     "rules": {
       "key": "rules",
@@ -86,16 +86,16 @@
       "key": "memory",
       "path": "memory-bank/memory.md",
       "exists": true,
-      "checksum": "6ef5686e4c19953e220f84906df10dd649c24b60c7774e7583289865e20510a8",
-      "bytes": 6914,
-      "summary": "Running knowledge base: all four phases complete — C++ engine, trained 12M model, and a live SSE gateway; plus the environment/engine/training/serving gotchas future agents need.",
+      "checksum": "c9173660d1cca270e8042756b0b0c562773bbd667239751137b0e409c4317580",
+      "bytes": 7557,
+      "summary": "Running knowledge base: CSLLM 1.0 complete (engine, trained model, SSE gateway) plus 2.0 Phase 1 (dataset plugins, special tokens, safetensors export); all environment/engine/training/serving/data gotchas.",
       "headings": [
         "Summary",
         "Recent Changes",
         "Learnings & Gotchas",
         "Known Issues"
       ],
-      "updatedAt": "2026-07-21T11:18:18.629Z"
+      "updatedAt": "2026-07-21T11:47:16.154Z"
     }
   }
 }

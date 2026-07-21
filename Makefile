@@ -1,4 +1,7 @@
-.PHONY: help setup build rebuild test lint clean tokenizer train sample debug serve curl smoke
+# `datasets` and `export` must be PHONY: a datasets/ directory exists, so make
+# would otherwise consider the target already satisfied and do nothing.
+.PHONY: help setup build rebuild test lint clean tokenizer train sample debug \
+        serve curl smoke export datasets
 
 PORT    ?= 8000
 
@@ -11,6 +14,8 @@ STEPS   ?= 3000
 BATCH   ?= 8
 LR      ?= 1e-3
 PROMPT  ?= KING RICHARD:
+CKPT       ?= data/model.csllm
+EXPORT_DIR ?= exports/v1
 
 help:
 	@echo "CSLLM — build targets"
@@ -23,6 +28,8 @@ help:
 	@echo "  make tokenizer  Train the BPE tokenizer + binarize  CONFIG=$(CONFIG)"
 	@echo "  make train      Train the model    STEPS=$(STEPS) BATCH=$(BATCH) LR=$(LR)"
 	@echo "  make sample     Generate from data/model.csllm      PROMPT='$(PROMPT)'"
+	@echo "  make export     Export a portable bundle -> $(EXPORT_DIR)"
+	@echo "  make datasets   List datasets in datasets/raw/"
 	@echo "  make debug      Full tokenizer+train cycle on configs/debug.json (seconds)"
 	@echo "  make serve      Run the FastAPI gateway on PORT=$(PORT)"
 	@echo "  make curl       Stream a completion from a running gateway"
@@ -66,6 +73,19 @@ train:
 
 sample:
 	$(VPY) -m train.sample --prompt "$(PROMPT)" --stream
+
+# Export a portable bundle (safetensors + tokenizer.json + config.json).
+export:
+	$(VPY) -m csllm.export --checkpoint $(CKPT) --tokenizer-dir data/tokenizer --out $(EXPORT_DIR)
+
+# List datasets dropped into datasets/raw/.
+datasets:
+	@$(VPY) -c "import datasets; \
+	files = datasets.discover(); \
+	print('supported:', ' '.join(datasets.supported_extensions())); \
+	print(f'{len(files)} file(s) in datasets/raw/') if True else None; \
+	[print(f'  {i.name:<24} {i.plugin:<6} {i.num_documents:>7,} docs {i.num_chars:>10,} chars') \
+	 for i in (datasets.describe(f) for f in files)]"
 
 # The fast feedback loop: whole pipeline end-to-end in a few seconds.
 debug:

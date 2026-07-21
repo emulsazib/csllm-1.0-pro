@@ -19,6 +19,8 @@ dependencies = [
     "numpy>=1.26",
     "regex>=2024.5.15",       # GPT-2 style pre-tokenization pattern
     "tqdm>=4.66",
+    # Portable export. The NUMPY backend is used — this does not pull in torch.
+    "safetensors>=0.4",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.8",

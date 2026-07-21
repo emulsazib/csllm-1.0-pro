@@ -1,0 +1,239 @@
+{
+ "format": "csllm",
+ "version": 1,
+ "architecture": {
+  "type": "csllm-transformer",
+  "norm": "rmsnorm",
+  "position": "rope-interleaved",
+  "ffn": "swiglu",
+  "residual": "pre-norm",
+  "tied_embeddings": true
+ },
+ "config": {
+  "vocab_size": 4096,
+  "n_layer": 6,
+  "n_head": 6,
+  "n_embd": 384,
+  "block_size": 256,
+  "ffn_hidden": 1024,
+  "rope_theta": 10000.0,
+  "norm_eps": 9.999999747378752e-06
+ },
+ "num_params": 12194688,
+ "exported_at": "2026-07-21T11:45:09+00:00",
+ "engine_version": "1.0.0",
+ "source_checkpoint": "data/model.csllm",
+ "tensors": {
+  "tok_emb": [
+   4096,
+   384
+  ],
+  "blocks.0.attn_norm.gain": [
+   384
+  ],
+  "blocks.0.attn.wq": [
+   384,
+   384
+  ],
+  "blocks.0.attn.wk": [
+   384,
+   384
+  ],
+  "blocks.0.attn.wv": [
+   384,
+   384
+  ],
+  "blocks.0.attn.wo": [
+   384,
+   384
+  ],
+  "blocks.0.ffn_norm.gain": [
+   384
+  ],
+  "blocks.0.ffn.wg": [
+   384,
+   1024
+  ],
+  "blocks.0.ffn.wu": [
+   384,
+   1024
+  ],
+  "blocks.0.ffn.wd": [
+   1024,
+   384
+  ],
+  "blocks.1.attn_norm.gain": [
+   384
+  ],
+  "blocks.1.attn.wq": [
+   384,
+   384
+  ],
+  "blocks.1.attn.wk": [
+   384,
+   384
+  ],
+  "blocks.1.attn.wv": [
+   384,
+   384
+  ],
+  "blocks.1.attn.wo": [
+   384,
+   384
+  ],
+  "blocks.1.ffn_norm.gain": [
+   384
+  ],
+  "blocks.1.ffn.wg": [
+   384,
+   1024
+  ],
+  "blocks.1.ffn.wu": [
+   384,
+   1024
+  ],
+  "blocks.1.ffn.wd": [
+   1024,
+   384
+  ],
+  "blocks.2.attn_norm.gain": [
+   384
+  ],
+  "blocks.2.attn.wq": [
+   384,
+   384
+  ],
+  "blocks.2.attn.wk": [
+   384,
+   384
+  ],
+  "blocks.2.attn.wv": [
+   384,
+   384
+  ],
+  "blocks.2.attn.wo": [
+   384,
+   384
+  ],
+  "blocks.2.ffn_norm.gain": [
+   384
+  ],
+  "blocks.2.ffn.wg": [
+   384,
+   1024
+  ],
+  "blocks.2.ffn.wu": [
+   384,
+   1024
+  ],
+  "blocks.2.ffn.wd": [
+   1024,
+   384
+  ],
+  "blocks.3.attn_norm.gain": [
+   384
+  ],
+  "blocks.3.attn.wq": [
+   384,
+   384
+  ],
+  "blocks.3.attn.wk": [
+   384,
+   384
+  ],
+  "blocks.3.attn.wv": [
+   384,
+   384
+  ],
+  "blocks.3.attn.wo": [
+   384,
+   384
+  ],
+  "blocks.3.ffn_norm.gain": [
+   384
+  ],
+  "blocks.3.ffn.wg": [
+   384,
+   1024
+  ],
+  "blocks.3.ffn.wu": [
+   384,
+   1024
+  ],
+  "blocks.3.ffn.wd": [
+   1024,
+   384
+  ],
+  "blocks.4.attn_norm.gain": [
+   384
+  ],
+  "blocks.4.attn.wq": [
+   384,
+   384
+  ],
+  "blocks.4.attn.wk": [
+   384,
+   384
+  ],
+  "blocks.4.attn.wv": [
+   384,
+   384
+  ],
+  "blocks.4.attn.wo": [
+   384,
+   384
+  ],
+  "blocks.4.ffn_norm.gain": [
+   384
+  ],
+  "blocks.4.ffn.wg": [
+   384,
+   1024
+  ],
+  "blocks.4.ffn.wu": [
+   384,
+   1024
+  ],
+  "blocks.4.ffn.wd": [
+   1024,
+   384
+  ],
+  "blocks.5.attn_norm.gain": [
+   384
+  ],
+  "blocks.5.attn.wq": [
+   384,
+   384
+  ],
+  "blocks.5.attn.wk": [
+   384,
+   384
+  ],
+  "blocks.5.attn.wv": [
+   384,
+   384
+  ],
+  "blocks.5.attn.wo": [
+   384,
+   384
+  ],
+  "blocks.5.ffn_norm.gain": [
+   384
+  ],
+  "blocks.5.ffn.wg": [
+   384,
+   1024
+  ],
+  "blocks.5.ffn.wu": [
+   384,
+   1024
+  ],
+  "blocks.5.ffn.wd": [
+   1024,
+   384
+  ],
+  "norm_f.gain": [
+   384
+  ]
+ }
+}
