@@ -1,0 +1,62 @@
+[build-system]
+# pybind11 >= 3.0 is required for Python 3.14 support (2.13.x predates it).
+requires = ["scikit-build-core>=0.10", "pybind11>=3.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "csllm"
+version = "1.0.0"
+description = "An autoregressive Transformer built from scratch: C++ engine with hand-written autograd, Python BPE + training loop, FastAPI SSE gateway"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "CSLLM" }]
+keywords = ["llm", "transformer", "cpp", "autograd", "from-scratch"]
+
+# NOTE: torch/tensorflow/jax are deliberately absent and must never be added.
+# The C++ engine does all tensor math; NumPy is for tests and data prep only.
+dependencies = [
+    "numpy>=1.26",
+    "regex>=2024.5.15",       # GPT-2 style pre-tokenization pattern
+    "tqdm>=4.66",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.8",
+    "sse-starlette>=2.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+csllm-train = "train.train:main"
+csllm-train-tokenizer = "train.train_tokenizer:main"
+
+[tool.scikit-build]
+minimum-version = "0.10"
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["csllm"]
+cmake.version = ">=3.20"
+cmake.build-type = "Release"
+sdist.exclude = [".venv", "build", "data", "*.csllm", ".knbase"]
+
+[tool.scikit-build.cmake.define]
+CSLLM_NATIVE_ARCH = "ON"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+filterwarnings = ["error::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

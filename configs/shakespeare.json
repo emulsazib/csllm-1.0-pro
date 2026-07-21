@@ -1,0 +1,11 @@
+{
+  "_comment": "The real run: TinyShakespeare, ~12.2M params. head_dim = 384/6 = 64 (even, required for RoPE). ffn_hidden = 1024 ~= 2/3 * 4 * n_embd rounded to a multiple of 64, the standard SwiGLU sizing that keeps parameter count comparable to a 4x GELU MLP despite the third matrix. Target val loss ~1.5.",
+  "vocab_size": 4096,
+  "n_layer": 6,
+  "n_head": 6,
+  "n_embd": 384,
+  "block_size": 256,
+  "ffn_hidden": 1024,
+  "rope_theta": 10000.0,
+  "norm_eps": 1e-5
+}

@@ -1,0 +1,11 @@
+{
+  "_comment": "Tiny config for fast end-to-end verification. The whole pipeline (train, sample, serve) runs in seconds, so gradient checks and the overfit-one-batch test stay cheap. Every change must keep this config working. ~0.14M params.",
+  "vocab_size": 512,
+  "n_layer": 2,
+  "n_head": 2,
+  "n_embd": 64,
+  "block_size": 32,
+  "ffn_hidden": 192,
+  "rope_theta": 10000.0,
+  "norm_eps": 1e-5
+}

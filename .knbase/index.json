@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "updatedAt": "2026-07-21T09:58:31.942Z",
+  "files": {
+    "prd": {
+      "key": "prd",
+      "path": "memory-bank/prd.md",
+      "exists": true,
+      "checksum": "256469a0a8cceec417c4c5ffab27ec0518458594460489e888942e5852ce846e",
+      "bytes": 4556,
+      "summary": "Build CSLLM: a ~12M-param autoregressive Transformer from scratch — pure C++ engine with hand-written autograd, Python BPE + training loop, FastAPI SSE gateway.",
+      "headings": [
+        "Problem",
+        "Goals",
+        "Users & Personas",
+        "Functional Requirements",
+        "Non-Goals",
+        "Success Metrics"
+      ],
+      "updatedAt": "2026-07-21T09:42:18.616Z"
+    },
+    "architecture": {
+      "key": "architecture",
+      "path": "memory-bank/architecture.md",
+      "exists": true,
+      "checksum": "bfcb44c50c96bfe21a5806dbe317fb382eddfa9d0a9c8054e56bb94dbf2c7cea",
+      "bytes": 5362,
+      "summary": "Three-layer system: C++ engine (core/) compiled to a pybind11 module, shared Python package (csllm/) with BPE + config + data, and training (train/) and FastAPI (gateway/) entrypoints.",
+      "headings": [
+        "Overview",
+        "Components",
+        "Data Flow",
+        "Tech Stack",
+        "External Dependencies"
+      ],
+      "updatedAt": "2026-07-21T09:42:43.366Z"
+    },
+    "design": {
+      "key": "design",
+      "path": "memory-bank/design.md",
+      "exists": true,
+      "checksum": "5cd67ec4eaa0ae1b504d59bd2b847b0443791f36a23ba77fd9c259b075db4fb8",
+      "bytes": 8609,
+      "summary": "Interfaces, the hand-derived gradient formulas for every op, the .csllm format, and key decisions (RoPE/RMSNorm/SwiGLU, weight tying, double-precision gradcheck, GIL release).",
+      "headings": [
+        "Modules & Interfaces",
+        "Key Decisions",
+        "Data Models",
+        "Conventions",
+        "Open Questions"
+      ],
+      "updatedAt": "2026-07-21T09:43:39.072Z"
+    },
+    "phase": {
+      "key": "phase",
+      "path": "memory-bank/phase.md",
+      "exists": true,
+      "checksum": "ec746c1b67183bb58d63127a5b884b0acf4af3cc0b3930fb2315eac6d98e64b3",
+      "bytes": 3138,
+      "summary": "Phase 1 (scaffolding & build) complete and verified; awaiting user approval to begin Phase 2 (C++ core + bindings).",
+      "headings": [
+        "Current Phase",
+        "Completed",
+        "In Progress",
+        "Next Up",
+        "Backlog"
+      ],
+      "updatedAt": "2026-07-21T09:58:08.716Z"
+    },
+    "rules": {
+      "key": "rules",
+      "path": "memory-bank/rules.md",
+      "exists": true,
+      "checksum": "11c1f778f261a411cac769b41e37b0f73c96269705e4b3d6f4d638c971756c86",
+      "bytes": 3786,
+      "summary": "Hard rules: no PyTorch/autograd libraries ever, no op ships without a NumPy oracle and a double-precision gradcheck, phase gates require explicit user approval.",
+      "headings": [
+        "Must Do",
+        "Must Not Do",
+        "Coding Standards",
+        "Guardrails"
+      ],
+      "updatedAt": "2026-07-21T09:44:00.870Z"
+    },
+    "memory": {
+      "key": "memory",
+      "path": "memory-bank/memory.md",
+      "exists": true,
+      "checksum": "7e1bed95f9a0c061fb2e0efdacc631dbc5027f3f4f865d6fc3363319a27e2856",
+      "bytes": 5486,
+      "summary": "Running knowledge base: Phase 1 (scaffolding) complete and verified; environment/build gotchas including the pybind11>=3.0 requirement for Python 3.14.",
+      "headings": [
+        "Summary",
+        "Recent Changes",
+        "Learnings & Gotchas",
+        "Known Issues"
+      ],
+      "updatedAt": "2026-07-21T09:57:44.692Z"
+    }
+  }
+}

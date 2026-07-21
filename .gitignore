@@ -1,0 +1,32 @@
+# Build artifacts
+build/
+dist/
+*.egg-info/
+_skbuild/
+CMakeCache.txt
+CMakeFiles/
+
+# Compiled extensions
+*.so
+*.dylib
+*.o
+*.a
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Trained artifacts & data (regenerable — never commit)
+data/
+*.csllm
+checkpoints/
+runs/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
