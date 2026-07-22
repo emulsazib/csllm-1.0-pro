@@ -17,20 +17,12 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { type AttentionBlock, attentionByLayerKey, attentionRow } from "../api/ws";
-import { type Mode, currentMode, cssVar } from "../theme";
+import { type Mode, currentMode, cssVar, sequentialColor } from "../theme";
 
-/** Blue sequential ramp, 100→700 (see the design palette). */
-const BLUE = [
-  "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5",
-  "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b",
-];
-
-/** Magnitude → colour. Dark mode reverses so "more" is always further from the
- *  surface, i.e. more visible, in both themes. */
+/** The ramp itself lives in theme.ts so the 3D view and the 2D heat-map cannot
+ *  drift apart; this only wraps it in the type three.js wants. */
 function sequential(t: number, mode: Mode): THREE.Color {
-  const clamped = Math.max(0, Math.min(1, t));
-  const index = Math.min(BLUE.length - 1, Math.floor(clamped * BLUE.length));
-  return new THREE.Color(mode === "dark" ? BLUE[BLUE.length - 1 - index] : BLUE[index]);
+  return new THREE.Color(sequentialColor(t, mode));
 }
 
 const CELL = 0.42;

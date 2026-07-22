@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
+import tempfile
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 
 from ..schemas import (
     ConfigureModelRequest,
@@ -13,6 +19,7 @@ from ..schemas import (
     EstimateResponse,
     ExportRequest,
     ExportResponse,
+    ExportSummary,
 )
 from ..versioning import ConfigStore
 
@@ -101,21 +108,136 @@ async def get_config(version_id: str, request: Request) -> ConfigVersionResponse
     return ConfigVersionResponse(**version.to_dict() | {"created": False})
 
 
+EXPORTS_DIR = Path("exports")
+
+
+def _bundle_files(directory: Path) -> dict[str, int]:
+    """Every file in the bundle, keyed by its path relative to the bundle root.
+
+    Recursive: `runtime/` and `cpp/` are part of what was exported, and a flat
+    listing would report a deployment package as three files.
+    """
+    return {
+        str(p.relative_to(directory)): p.stat().st_size
+        for p in sorted(directory.rglob("*"))
+        if p.is_file()
+    }
+
+
+def _resolve_export(name: str) -> Path:
+    """Map a bundle name to a directory under ``exports/``.
+
+    ``name`` comes from the URL, so resolve the whole path and check its parent —
+    the same guard the dataset routes use, which also closes symlink escapes.
+    """
+    root = EXPORTS_DIR.resolve()
+    path = (EXPORTS_DIR / name).resolve()
+    if path.parent != root or not path.is_dir():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"no such export: {name}")
+    return path
+
+
 @router.post("/export", response_model=ExportResponse)
 async def export_model(req: ExportRequest) -> ExportResponse:
-    """Write a portable safetensors bundle (no torch involved)."""
+    """Write a portable safetensors bundle (no torch involved).
+
+    Export reads every weight and writes ~49 MB for the 12M model, so it runs on
+    a worker thread — doing it inline would stall every concurrent stream.
+    """
     from csllm.export import export_bundle
 
     try:
-        manifest = export_bundle(req.checkpoint, req.tokenizer_dir, req.out)
+        manifest = await asyncio.to_thread(
+            export_bundle,
+            req.checkpoint,
+            req.tokenizer_dir,
+            req.out,
+            req.include_runtime,
+            req.include_cpp,
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
 
     out = Path(req.out)
+    files = _bundle_files(out)
     return ExportResponse(
         out_dir=str(out),
+        name=out.name,
         num_params=manifest["num_params"],
-        files={p.name: p.stat().st_size for p in sorted(out.iterdir()) if p.is_file()},
+        files=files,
+        total_bytes=sum(files.values()),
+        includes=manifest.get("includes", []),
+    )
+
+
+@router.get("/exports", response_model=list[ExportSummary])
+async def list_exports() -> list[ExportSummary]:
+    """Bundles already written under ``exports/``."""
+    summaries: list[ExportSummary] = []
+    if not EXPORTS_DIR.is_dir():
+        return summaries
+
+    for directory in sorted(EXPORTS_DIR.iterdir()):
+        if not directory.is_dir() or not (directory / "config.json").is_file():
+            continue  # not a bundle
+        files = _bundle_files(directory)
+        manifest: dict = {}
+        # A hand-edited config.json should leave the bundle listed without its
+        # metadata rather than dropping it from the listing entirely.
+        with contextlib.suppress(OSError, ValueError):
+            manifest = json.loads((directory / "config.json").read_text())
+        summaries.append(
+            ExportSummary(
+                name=directory.name,
+                path=str(directory),
+                num_params=manifest.get("num_params"),
+                total_bytes=sum(files.values()),
+                file_count=len(files),
+                exported_at=manifest.get("exported_at"),
+                includes=manifest.get("includes", []),
+            )
+        )
+    return summaries
+
+
+def _zip_bundle(directory: Path) -> tempfile.SpooledTemporaryFile:
+    """Zip a bundle into a spooled buffer (memory until 8 MB, then disk).
+
+    Deliberately not built entirely in memory: a 12M-parameter bundle is ~49 MB
+    of safetensors, and a handful of concurrent downloads would be enough to
+    matter. ZIP_STORED, not DEFLATE — safetensors is raw float32 that does not
+    compress meaningfully, so deflating it burns CPU for ~1% off the size.
+    """
+    # noqa SIM115: the buffer deliberately outlives this function — the streaming
+    # response reads from it and closes it when the download ends or aborts.
+    buffer = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024)  # noqa: SIM115
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
+        for path in sorted(directory.rglob("*")):
+            if path.is_file():
+                archive.write(path, arcname=str(Path(directory.name) / path.relative_to(directory)))
+    buffer.seek(0)
+    return buffer
+
+
+@router.get("/export/{name}/download")
+async def download_export(name: str) -> StreamingResponse:
+    """Stream a bundle as a zip."""
+    directory = _resolve_export(name)
+    buffer = await asyncio.to_thread(_zip_bundle, directory)
+
+    def chunks():
+        try:
+            while data := buffer.read(64 * 1024):
+                yield data
+        finally:
+            # Closing releases the spill file; without this an aborted download
+            # leaks one temp file per attempt.
+            buffer.close()
+
+    return StreamingResponse(
+        chunks(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}.zip"'},
     )

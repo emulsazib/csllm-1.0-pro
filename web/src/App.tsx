@@ -4,16 +4,26 @@ import type { Health } from "./api/types";
 import { AttentionPanel } from "./components/AttentionPanel";
 import { ConfiguratorPanel } from "./components/ConfiguratorPanel";
 import { DatasetBrowser } from "./components/DatasetBrowser";
+import { ExportModal } from "./components/ExportModal";
+import { PlaygroundPanel } from "./components/PlaygroundPanel";
 import { ProbabilityPanel } from "./components/ProbabilityPanel";
 import { TokenizerPanel } from "./components/TokenizerPanel";
 import { TrainingDashboard } from "./components/TrainingDashboard";
 import { currentMode, type Mode } from "./theme";
 
-type TabId = "configure" | "datasets" | "tokens" | "sampling" | "attention" | "training";
+type TabId =
+  | "configure"
+  | "datasets"
+  | "playground"
+  | "tokens"
+  | "sampling"
+  | "attention"
+  | "training";
 
 const TABS: { id: TabId; label: string; ready: boolean }[] = [
   { id: "configure", label: "Configure", ready: true },
   { id: "datasets", label: "Datasets", ready: true },
+  { id: "playground", label: "Playground", ready: true },
   { id: "tokens", label: "Tokens & Embeddings", ready: true },
   { id: "sampling", label: "Sampling", ready: true },
   { id: "attention", label: "Attention", ready: true },
@@ -61,6 +71,9 @@ export default function App() {
 
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  // In the header rather than a tab: exporting is an action on the model, not a
+  // view of it, and it is wanted from wherever you happen to be.
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -87,8 +100,13 @@ export default function App() {
           </span>
         )}
         <span className="spacer" />
+        <button className="ghost" onClick={() => setExporting(true)}>
+          Export
+        </button>
         <ThemeToggle />
       </header>
+
+      {exporting && <ExportModal onClose={() => setExporting(false)} />}
 
       {healthError && (
         <div className="error">
@@ -114,6 +132,7 @@ export default function App() {
 
       {tab === "configure" && <ConfiguratorPanel />}
       {tab === "datasets" && <DatasetBrowser />}
+      {tab === "playground" && <PlaygroundPanel />}
       {tab === "tokens" && <TokenizerPanel />}
       {tab === "sampling" && <ProbabilityPanel />}
       {tab === "attention" && <AttentionPanel />}

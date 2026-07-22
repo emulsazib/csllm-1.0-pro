@@ -6,27 +6,11 @@
 
 import { useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { TokenInfo } from "../api/types";
 import { useAsync, useDebounced } from "../hooks/useDebounced";
 import { EmbeddingHeatmap } from "./EmbeddingHeatmap";
+import { TOKEN_TINTS, TokenText } from "./TokenText";
 
 const DEFAULT_TEXT = "KING RICHARD:\nBut this is it, I have thought it with the world.";
-
-/** Alternating tints keep adjacent tokens separable without implying categories.
- *  Deliberately NOT the categorical series colours — token index carries no
- *  identity, so using series hues would suggest a grouping that does not exist. */
-const TINTS = ["rgba(42,120,214,0.13)", "rgba(42,120,214,0.05)"];
-
-function renderTokenText(token: TokenInfo) {
-  if (token.text === "") return <span className="ws">∅</span>;
-  const parts = token.text.split(/(\n|\t| )/g).filter((p) => p !== "");
-  return parts.map((part, i) => {
-    if (part === "\n") return <span key={i} className="ws">↵</span>;
-    if (part === "\t") return <span key={i} className="ws">⇥</span>;
-    if (part === " ") return <span key={i} className="ws">␣</span>;
-    return <span key={i}>{part}</span>;
-  });
-}
 
 export function TokenizerPanel() {
   const [text, setText] = useState(DEFAULT_TEXT);
@@ -102,19 +86,19 @@ export function TokenizerPanel() {
                   className="token"
                   data-partial={token.partial_utf8}
                   data-selected={selected === token.index}
-                  style={{ background: TINTS[token.index % TINTS.length] }}
+                  style={{ background: TOKEN_TINTS[token.index % TOKEN_TINTS.length] }}
                   title={`id ${token.id} · bytes ${token.start}–${token.end} · [${token.bytes.join(", ")}]`}
                   onMouseEnter={() => setSelected(token.index)}
                   onMouseLeave={() => setSelected(null)}
                 >
-                  {renderTokenText(token)}
+                  <TokenText text={token.text} />
                 </span>
               ))}
             </div>
 
             <div className="legend">
               <span className="item">
-                <span className="swatch" style={{ background: TINTS[0] }} /> token boundary
+                <span className="swatch" style={{ background: TOKEN_TINTS[0] }} /> token boundary
               </span>
               <span className="item">
                 <span

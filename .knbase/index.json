@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-21T20:01:39.606Z",
+  "updatedAt": "2026-07-22T08:16:32.752Z",
   "files": {
     "prd": {
       "key": "prd",
@@ -55,8 +55,8 @@
       "key": "phase",
       "path": "memory-bank/phase.md",
       "exists": true,
-      "checksum": "3958c271e15793af520d28001a74eaead4f38140e620b9f4833f836e5904bdbd",
-      "bytes": 5635,
+      "checksum": "d081a64f2c915188f651b46ecd6c8489d2c418ec2825fbfbf4bd955ff2e0d936",
+      "bytes": 7242,
       "summary": "All phases of CSLLM 1.0 and 2.0 are complete; remaining work is backlog only.",
       "headings": [
         "Current Phase",
@@ -65,7 +65,7 @@
         "Next Up",
         "Backlog"
       ],
-      "updatedAt": "2026-07-21T20:01:39.605Z"
+      "updatedAt": "2026-07-22T08:16:32.749Z"
     },
     "rules": {
       "key": "rules",
@@ -86,8 +86,8 @@
       "key": "memory",
       "path": "memory-bank/memory.md",
       "exists": true,
-      "checksum": "c8cb62ccd2b99e22e5e9c0d754c49cd863346cb93f995c4814e938a981252bce",
-      "bytes": 12869,
+      "checksum": "c88bdcf5c7e68967930698832b27c0e8daaeee44b025b8798ea76c4cf98664d9",
+      "bytes": 18103,
       "summary": "Running knowledge base: CSLLM 1.0 and 2.0 both complete — C++ engine, trained model, gateway, and full React diagnostics UI; all environment, engine, training, serving and frontend gotchas.",
       "headings": [
         "Summary",
@@ -95,7 +95,7 @@
         "Learnings & Gotchas",
         "Known Issues"
       ],
-      "updatedAt": "2026-07-21T20:01:39.606Z"
+      "updatedAt": "2026-07-22T08:16:32.752Z"
     }
   }
 }

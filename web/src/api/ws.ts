@@ -48,6 +48,50 @@ export function attentionByLayerKey(block: AttentionBlock, layer: number): Float
   return out;
 }
 
+/**
+ * The weights one query used, for a chosen layer and head.
+ *
+ * `"all"` averages the layer's heads rather than picking one — the same
+ * reduction the 3D view uses, so the two panels agree on what "all heads" means.
+ *
+ * Indices are CLAMPED to the block. Panels hold layer/head in component state
+ * that outlives a generation, so switching to a shallower model would otherwise
+ * read past the end of the buffer and render whatever followed it as attention.
+ */
+export function attentionVector(
+  block: AttentionBlock,
+  layer: number,
+  head: number | "all",
+): Float32Array {
+  const l = Math.max(0, Math.min(block.layers - 1, layer));
+  if (head === "all") return attentionByLayerKey(block, l);
+  return attentionRow(block, l, Math.max(0, Math.min(block.heads - 1, head)));
+}
+
+/**
+ * Stack per-token attention into a query x key matrix.
+ *
+ * Each generated token is one query row. Decoding is causal and the context
+ * grows by one per step, so row `i` is SHORTER than row `i+1` — the matrix is
+ * ragged, and callers must treat missing cells as "not attended to", not zero
+ * weight. `keys` is the widest row.
+ */
+export function attentionMatrix(
+  tokens: { attention?: AttentionBlock }[],
+  layer: number,
+  head: number | "all",
+): { rows: Float32Array[]; keys: number } {
+  const rows: Float32Array[] = [];
+  let keys = 0;
+  for (const token of tokens) {
+    if (!token.attention) continue;
+    const row = attentionVector(token.attention, layer, head);
+    rows.push(row);
+    keys = Math.max(keys, row.length);
+  }
+  return { rows, keys };
+}
+
 export function parseAttention(shape: number[], buffer: ArrayBuffer): AttentionBlock {
   const [layers, heads, keys] = shape;
   const expected = layers * heads * keys * 4;

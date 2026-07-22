@@ -126,12 +126,14 @@ textarea:focus, input:focus { outline: 2px solid var(--series-1); outline-offset
 .control input[type="range"] { width: 100%; accent-color: var(--series-1); }
 .control .note { font-size: 11px; color: var(--text-muted); }
 
-button.action {
+/* Anchors are included so a download link — which must be a real <a> to get a
+   browser download rather than a fetch-into-blob — matches the buttons beside it. */
+button.action, a.action {
   appearance: none; font: inherit; font-size: 13px; font-weight: 600;
   padding: 7px 14px; border-radius: var(--radius); cursor: pointer;
   background: var(--series-1); color: #fff; border: 1px solid transparent;
 }
-button.action:hover { filter: brightness(1.06); }
+button.action:hover, a.action:hover { filter: brightness(1.06); }
 button.action:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Height is pinned to match a range input: `.controls` bottom-aligns its items,
@@ -142,13 +144,36 @@ select {
   background: var(--surface-0); color: var(--text-primary); width: 100%;
 }
 
-button.ghost {
+button.ghost, a.ghost {
   appearance: none; font: inherit; font-size: 12.5px; padding: 5px 10px;
   border-radius: var(--radius); cursor: pointer; background: transparent;
   color: var(--text-secondary); border: 1px solid var(--border);
 }
-button.ghost:hover { color: var(--text-primary); }
+button.ghost:hover, a.ghost:hover { color: var(--text-primary); }
 button.ghost[aria-pressed="true"] { color: var(--text-primary); border-color: var(--baseline); }
+
+a.action, a.ghost { text-decoration: none; display: inline-block; }
+
+.toggle { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; flex: 1; min-width: 240px; }
+.toggle input { margin-top: 3px; accent-color: var(--series-1); flex: none; }
+.toggle span { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.toggle .note { font-size: 11px; color: var(--text-muted); }
+
+/* ── modal ────────────────────────────────────────────────────────────── */
+
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 20;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 40px 20px; overflow-y: auto;
+}
+.modal {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 20px; width: 100%; max-width: 780px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+.modal-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.modal-head h2 { font-size: 15px; margin: 0; font-weight: 650; flex: 1; }
 
 /* ── stats ────────────────────────────────────────────────────────────── */
 

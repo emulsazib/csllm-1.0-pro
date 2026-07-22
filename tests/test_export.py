@@ -196,6 +196,139 @@ def test_exported_weights_reproduce_the_model_logits(bundle, model, tokenizer):
     np.testing.assert_array_equal(tensors["tok_emb"][ids], model.get_param("tok_emb")[ids])
 
 
+# ── deployment packages ──────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def full_bundle(model, tokenizer, tmp_path):
+    """A bundle with both deployment packages attached."""
+    ckpt = tmp_path / "m.csllm"
+    model.save(str(ckpt))
+    tok_dir = tmp_path / "tok"
+    tokenizer.save(tok_dir)
+    out = tmp_path / "full"
+    manifest = export_bundle(ckpt, tok_dir, out, include_runtime=True, include_cpp=True)
+    return out, manifest
+
+
+def test_runtime_is_opt_in(bundle):
+    """The default bundle stays the three documented files."""
+    out, _ = bundle
+    assert not (out / "runtime").exists()
+    assert not (out / "cpp").exists()
+    assert not (out / "README.md").exists()
+
+
+def test_full_bundle_adds_runtime_cpp_and_readme(full_bundle):
+    out, manifest = full_bundle
+    assert (out / "runtime" / "load.py").is_file()
+    assert (out / "runtime" / "requirements.txt").is_file()
+    assert (out / "cpp" / "CMakeLists.txt").is_file()
+    assert (out / "cpp" / "include" / "csllm" / "model.hpp").is_file()
+    assert (out / "cpp" / "src" / "model.cpp").is_file()
+    assert (out / "README.md").is_file()
+    assert set(manifest["includes"]) == {"python-runtime", "cpp"}
+
+
+def test_includes_are_recorded_in_the_shipped_config(full_bundle):
+    """The manifest on disk must match what was returned, or a consumer
+    inspecting the bundle sees a different story from the API caller."""
+    out, manifest = full_bundle
+    on_disk = json.loads((out / "config.json").read_text())
+    assert on_disk["includes"] == manifest["includes"]
+
+
+def test_runtime_loader_does_not_import_csllm(full_bundle):
+    """A deployment package that needs the repo it came from is not one."""
+    source = (full_bundle[0] / "runtime" / "load.py").read_text()
+    assert "csllm" not in source.replace("CSLLM", "").replace("csllm-", "")
+    assert "import torch" not in source
+
+
+def test_runtime_loader_encodes_identically_to_the_real_tokenizer(full_bundle, tokenizer):
+    """The load-bearing property of the whole package.
+
+    The loader reimplements BPE from tokenizer.json alone. If its merge ordering
+    drifts from the real tokenizer, a deployed model silently receives different
+    token ids than it was trained on and produces fluent nonsense.
+    """
+    out, _ = full_bundle
+    module = _load_runtime(out)
+    bundle = module.CSLLMBundle(str(out))
+
+    for probe in [
+        "To be, or not to be",
+        "Whether tis nobler 🌍",  # multi-byte, spans several tokens
+        "  leading\n\ttabs and spaces  ",
+        "",
+        "e" * 200,  # long repeat: exercises the merge loop
+    ]:
+        assert bundle.tokenizer.encode(probe) == tokenizer.encode(probe), probe
+        assert bundle.tokenizer.decode(bundle.tokenizer.encode(probe)) == probe
+
+
+def test_runtime_loader_reads_weights_bitwise(full_bundle, model):
+    out, _ = full_bundle
+    bundle = _load_runtime(out).CSLLMBundle(str(out))
+    for name in model.param_names():
+        np.testing.assert_array_equal(bundle.weights[name], model.get_param(name))
+
+
+def test_runtime_loader_rejects_an_inconsistent_bundle(full_bundle):
+    """vocab_size disagreeing between tokenizer and config is unrecoverable."""
+    out, _ = full_bundle
+    config = json.loads((out / "config.json").read_text())
+    config["config"]["vocab_size"] += 1
+    (out / "config.json").write_text(json.dumps(config))
+
+    module = _load_runtime(out)
+    with pytest.raises(ValueError, match="inconsistent"):
+        module.CSLLMBundle(str(out))
+
+
+def test_readme_documents_the_real_tensor_names(full_bundle, model):
+    """A README naming tensors the bundle does not contain is worse than none."""
+    out, _ = full_bundle
+    readme = (out / "README.md").read_text()
+    for name in ["tok_emb", "norm_f.gain", "attn_norm.gain", "ffn.wg", "ffn.wd"]:
+        assert name in readme, name
+    # And every documented leaf must actually exist in the export.
+    assert "norm_f.gain" in model.param_names()
+
+
+def test_cpp_package_carries_the_definitions_its_sources_need(full_bundle):
+    """build_info.cpp and gemm.cpp reference these unconditionally — omitting
+    any of them ships a package that does not compile."""
+    cmake = (full_bundle[0] / "cpp" / "CMakeLists.txt").read_text()
+    for symbol in ["CSLLM_VERSION", "CSLLM_BLAS_BACKEND", "CSLLM_USE_ACCELERATE"]:
+        assert symbol in cmake, symbol
+    # Recent macOS SDKs reject the cblas_* prototypes without this.
+    assert "ACCELERATE_NEW_LAPACK" in cmake
+    # -ffast-math breaks the NaN/Inf guards (rules.md #4). Check the compile
+    # options, not the raw text — the flag is *named* in a comment saying why it
+    # is absent, which a substring search reads as its presence.
+    options = [line for line in cmake.splitlines() if "target_compile_options" in line]
+    assert options and all("-ffast-math" not in line for line in options)
+
+
+def test_cpp_package_excludes_the_python_bindings(full_bundle):
+    """A C++ consumer does not want the pybind11 layer."""
+    files = [p.name for p in (full_bundle[0] / "cpp").rglob("*") if p.is_file()]
+    assert "py_module.cpp" not in files
+
+
+def _load_runtime(bundle_dir):
+    """Import the emitted loader as a module, without it being on sys.path."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        f"csllm_runtime_{bundle_dir.name}", bundle_dir / "runtime" / "load.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_tokenizer_model_vocab_mismatch_is_caught(model, tmp_path):
     """Exporting a mismatched pair would produce a bundle that emits garbage."""
     ckpt = tmp_path / "m.csllm"

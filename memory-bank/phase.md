@@ -2,8 +2,8 @@
 
 ## Current Phase
 
-**CSLLM 3.0 — enterprise control dashboard. Phases 1-2 of 4 complete, awaiting approval.**
-377 Python tests + 60 frontend tests pass, 0 compiler warnings, ruff clean, `tsc -b` clean.
+**COMPLETE — CSLLM 1.0, 2.0 and 3.0. All twelve phases delivered.**
+391 Python tests + 82 frontend tests pass, 0 compiler warnings, ruff clean, `tsc -b` clean.
 Every UI phase is verified by driving the real app in headless Chrome, not by inspection.
 
 The 3.0 brief (fourth section of `doc/prompt.md`) asks for a PyTorch core engine; that was
@@ -71,17 +71,40 @@ has, via `csllm/resources.py`.
 - [x] **Verified live over CDP:** prepared `speeches.jsonl` (901 docs) → trained on it → paused
       (step frozen at 600 across 2 s) → resumed (600 → 994) → stopped (SIGTERM, ~2 s).
 
+**CSLLM 3.0 Phase 3 — Explainable inference playground**
+
+- [x] `PlaygroundPanel`: one prompt, one `/ws/inspect` subscription, per-token breakdown
+      (tokenization → attention → probability) for whichever token is clicked.
+- [x] `AttentionHeatmap`: query x key matrix on canvas, causal staircase preserved (cells past a
+      row's end are surface, not zero), robust p98 scale with clipping reported.
+- [x] `attentionVector` / `attentionMatrix` in `api/ws.ts`, with layer/head clamping.
+- [x] Sequential ramp promoted from `TransformerGraph` to `theme.ts`; token-chip markup
+      extracted to `TokenText.tsx`. **No backend changes were needed.**
+- [x] **Verified live over CDP:** 24 tokens; heat-map rows match the chips exactly; clicking
+      token #2 repointed the breakdown; head and layer switches repaint; zero console errors.
+
+**CSLLM 3.0 Phase 4 — Export manager & packaging**
+
+- [x] `export_bundle(include_runtime=, include_cpp=)` — both default off, so a plain bundle is
+      still exactly the three documented files.
+- [x] `runtime/`: torch-free loader emitted from `csllm/runtime_template.py`, rebuilding the BPE
+      tokenizer from `tokenizer.json` alone. `cpp/`: the C++20 engine plus a standalone
+      CMakeLists carrying the definitions its sources need. `README.md` documents real tensor
+      names.
+- [x] `GET /exports`, `GET /export/{name}/download` (spooled ZIP_STORED zip on a worker thread),
+      traversal- and symlink-safe.
+- [x] `ExportModal` in the app header, with package toggles and a previous-exports list.
+- [x] **Verified for real, not just in the UI:** downloaded the zip (49,210,819 bytes, 36
+      entries), extracted it to a clean directory, ran `runtime/load.py` there, and built
+      `libcsllm_engine.a` from `cpp/` with 0 warnings.
+
 ## In Progress
 
-**Awaiting approval to start 3.0 Phase 3** (unified explainable playground + attention
-matrix heat-map).
+Nothing. The project meets every goal in `prd.md` and all four briefs in `doc/prompt.md`.
 
 ## Next Up
 
-1. **3.0 Phase 3** — unified explainable playground + attention matrix heat-map.
-2. **3.0 Phase 4** — zip download, standalone deployment package, export modal.
-
-Carried over from 2.0:
+No committed work. Carried over from 2.0:
 
 - **Regularization (dropout)** — the train/val gap is +1.26; the largest quality win available.
 - **Continuous/batched decoding** — would lift concurrency from ~1.95x toward linear.

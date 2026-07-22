@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { divergingColor, divergingLegend, robustLimit } from "./theme";
+import {
+  divergingColor,
+  divergingLegend,
+  robustLimit,
+  sequentialColor,
+  sequentialLegend,
+} from "./theme";
 
 /** OKLab lightness — the same measure used to validate the ramp. */
 function oklabL(hex: string): number {
@@ -112,5 +118,56 @@ describe("robustLimit", () => {
     expect(robustLimit([])).toBe(1);
     expect(robustLimit([0, 0, 0])).toBeGreaterThan(0);
     expect(robustLimit([NaN, Infinity, 0.5])).toBeGreaterThan(0);
+  });
+});
+
+describe("sequential ramp", () => {
+  // Shared by the 3D attention view and the 2D heat-map, so a regression here
+  // silently changes what both of them claim about the same weights.
+  for (const mode of ["light", "dark"] as const) {
+    describe(mode, () => {
+      it("is monotonic in OKLab lightness", () => {
+        const samples = Array.from({ length: 13 }, (_, i) => sequentialColor(i / 13, mode));
+        const lightness = samples.map(oklabL);
+        for (let i = 1; i < lightness.length; i++) {
+          // Light surface: darker as the value grows. Dark surface: lighter.
+          if (mode === "light") expect(lightness[i]).toBeLessThan(lightness[i - 1]);
+          else expect(lightness[i]).toBeGreaterThan(lightness[i - 1]);
+        }
+      });
+
+      it("moves away from the surface as the weight grows", () => {
+        // "More attention" must read as "more visible" in both themes.
+        const low = oklabL(sequentialColor(0.05, mode));
+        const high = oklabL(sequentialColor(0.95, mode));
+        expect(mode === "light" ? high < low : high > low).toBe(true);
+      });
+
+      it("clamps out-of-range input to the ends", () => {
+        expect(sequentialColor(-5, mode)).toBe(sequentialColor(0, mode));
+        expect(sequentialColor(5, mode)).toBe(sequentialColor(1, mode));
+      });
+
+      it("never returns undefined for any value in range", () => {
+        for (let i = 0; i <= 100; i++) {
+          expect(sequentialColor(i / 100, mode)).toMatch(/^#[0-9a-f]{6}$/);
+        }
+      });
+
+      it("falls back to a real colour on NaN", () => {
+        expect(sequentialColor(NaN, mode)).toMatch(/^#[0-9a-f]{6}$/);
+      });
+
+      it("legend runs in the same direction as the scale", () => {
+        const legend = sequentialLegend(mode);
+        expect(legend[0]).toBe(sequentialColor(0, mode));
+        expect(legend.at(-1)).toBe(sequentialColor(1, mode));
+      });
+    });
+  }
+
+  it("has no neutral midpoint — attention has no polarity", () => {
+    // A diverging scale would invent a meaningless zero-crossing at 0.5.
+    expect(sequentialColor(0.5, "light")).not.toBe(divergingColor(0, 1, "light"));
   });
 });

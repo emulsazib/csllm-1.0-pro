@@ -11,6 +11,9 @@ import type {
   DatasetListing,
   EmbeddingsResponse,
   EstimateResponse,
+  ExportRequest,
+  ExportResponse,
+  ExportSummary,
   Health,
   InspectResponse,
   PreparedDataset,
@@ -148,4 +151,17 @@ export const api = {
   /** stop | pause | resume — all take no body and return the settled status. */
   trainControl: (action: "stop" | "pause" | "resume", signal?: AbortSignal) =>
     post<TrainStatus>(`/train/${action}`, {}, signal),
+
+  // ── export ─────────────────────────────────────────────────────────────────
+
+  exports: (signal?: AbortSignal) => request<ExportSummary[]>("/exports", { signal }),
+
+  exportBundle: (req: ExportRequest, signal?: AbortSignal) =>
+    post<ExportResponse>("/export", req, signal),
+
+  /** Where the browser should navigate to receive the zip. Not fetched here:
+   *  letting the browser handle it gives a real download with a filename,
+   *  instead of buffering ~49 MB into a blob first. */
+  downloadUrl: (name: string) =>
+    `${API_BASE}/export/${encodeURIComponent(name)}/download`,
 };

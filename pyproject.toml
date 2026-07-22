@@ -59,6 +59,11 @@ filterwarnings = ["error::DeprecationWarning"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Export bundles are generated artifacts, not source. The loader they contain is
+# emitted from a string in csllm/runtime_template.py, so ruff cannot see it either
+# way; tests/test_export.py imports and executes the emitted file instead, which
+# catches both syntax errors and behavioural drift from the real tokenizer.
+extend-exclude = ["exports"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

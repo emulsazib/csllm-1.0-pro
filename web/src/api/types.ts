@@ -145,6 +145,34 @@ export interface DatasetListing {
   datasets: DatasetInfo[];
 }
 
+export interface ExportRequest {
+  checkpoint: string;
+  tokenizer_dir: string;
+  out: string;
+  include_runtime: boolean;
+  include_cpp: boolean;
+}
+
+export interface ExportResponse {
+  out_dir: string;
+  name: string;
+  num_params: number;
+  /** Relative path -> bytes, including anything under runtime/ or cpp/. */
+  files: Record<string, number>;
+  total_bytes: number;
+  includes: string[];
+}
+
+export interface ExportSummary {
+  name: string;
+  path: string;
+  num_params: number | null;
+  total_bytes: number;
+  file_count: number;
+  exported_at: string | null;
+  includes: string[];
+}
+
 /** A dataset that has been tokenized and binarized — ready to train on. */
 export interface PreparedDataset {
   name: string;

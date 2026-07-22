@@ -3,7 +3,9 @@ import {
   type AttentionBlock,
   attentionByKey,
   attentionByLayerKey,
+  attentionMatrix,
   attentionRow,
+  attentionVector,
   parseAttention,
 } from "./ws";
 
@@ -101,5 +103,90 @@ describe("aggregations", () => {
       keys: 0,
     };
     expect(Array.from(attentionByKey(block))).toEqual([]);
+  });
+});
+
+describe("attentionVector", () => {
+  it("picks a single head", () => {
+    const block = makeBlock(2, 2, 3);
+    expect(Array.from(attentionVector(block, 1, 0))).toEqual(
+      Array.from(attentionRow(block, 1, 0)),
+    );
+  });
+
+  it("averages the layer's heads for 'all'", () => {
+    const block: AttentionBlock = {
+      data: new Float32Array([1, 0, 0, 1]), // layer 0: head0=[1,0], head1=[0,1]
+      layers: 1,
+      heads: 2,
+      keys: 2,
+    };
+    expect(Array.from(attentionVector(block, 0, "all"))).toEqual([0.5, 0.5]);
+  });
+
+  it("clamps a layer/head that outlived a deeper model", () => {
+    // Panels keep layer/head in state across generations. Without clamping,
+    // a stale index reads past the buffer and renders adjacent memory as
+    // attention — plausible-looking and completely wrong.
+    const block = makeBlock(2, 2, 3);
+    expect(Array.from(attentionVector(block, 99, 0))).toEqual(
+      Array.from(attentionRow(block, 1, 0)),
+    );
+    expect(Array.from(attentionVector(block, 0, 99))).toEqual(
+      Array.from(attentionRow(block, 0, 1)),
+    );
+    expect(Array.from(attentionVector(block, -5, -5))).toEqual(
+      Array.from(attentionRow(block, 0, 0)),
+    );
+  });
+
+  it("never reads past the end of the buffer", () => {
+    const block = makeBlock(2, 2, 3);
+    expect(attentionVector(block, 99, 99)).toHaveLength(block.keys);
+  });
+});
+
+describe("attentionMatrix", () => {
+  /** One decode step: `keys` grows by one each token, because decoding is causal. */
+  function step(keys: number, fill: number): { attention: AttentionBlock } {
+    return {
+      attention: { data: new Float32Array(keys).fill(fill), layers: 1, heads: 1, keys },
+    };
+  }
+
+  it("stacks tokens into rows and reports the widest", () => {
+    const { rows, keys } = attentionMatrix([step(2, 0.5), step(3, 0.25)], 0, 0);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveLength(2);
+    expect(rows[1]).toHaveLength(3);
+    expect(keys).toBe(3); // the widest row, not the first
+  });
+
+  it("stays ragged rather than padding short rows", () => {
+    // Padding would draw "did not attend" and "could not attend" identically —
+    // the early token had no such key in its context at all.
+    const { rows } = attentionMatrix([step(1, 1), step(4, 0.25)], 0, 0);
+    expect(rows[0]).toHaveLength(1);
+    expect(rows[0][0]).toBe(1);
+  });
+
+  it("skips tokens with no attention block", () => {
+    const { rows, keys } = attentionMatrix([{}, step(2, 0.5), {}], 0, 0);
+    expect(rows).toHaveLength(1);
+    expect(keys).toBe(2);
+  });
+
+  it("returns an empty matrix when nothing has attention", () => {
+    expect(attentionMatrix([{}, {}], 0, 0)).toEqual({ rows: [], keys: 0 });
+  });
+
+  it("honours the head selection per row", () => {
+    const block: AttentionBlock = {
+      data: new Float32Array([1, 0, 0, 1]),
+      layers: 1,
+      heads: 2,
+      keys: 2,
+    };
+    expect(Array.from(attentionMatrix([{ attention: block }], 0, 1).rows[0])).toEqual([0, 1]);
   });
 });

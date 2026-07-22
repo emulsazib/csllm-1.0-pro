@@ -31,6 +31,38 @@ export function chartTokens() {
   };
 }
 
+/** Blue sequential ramp, 100→700 (see the design palette).
+ *
+ *  For magnitudes with no polarity — attention weights live in [0,1] and a
+ *  diverging scale would invent a midpoint that means nothing.
+ */
+const SEQUENTIAL_BLUE = [
+  "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5",
+  "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b",
+];
+
+/**
+ * Magnitude in [0,1] → colour.
+ *
+ * Dark mode reverses the ramp so "more" is always further from the surface, i.e.
+ * more visible, in both themes.
+ */
+export function sequentialColor(t: number, mode: Mode = currentMode()): string {
+  if (!Number.isFinite(t)) return SEQUENTIAL_BLUE[0];
+  const clamped = Math.max(0, Math.min(1, t));
+  const index = Math.min(
+    SEQUENTIAL_BLUE.length - 1,
+    Math.floor(clamped * SEQUENTIAL_BLUE.length),
+  );
+  return mode === "dark"
+    ? SEQUENTIAL_BLUE[SEQUENTIAL_BLUE.length - 1 - index]
+    : SEQUENTIAL_BLUE[index];
+}
+
+export function sequentialLegend(mode: Mode = currentMode()): string[] {
+  return mode === "dark" ? [...SEQUENTIAL_BLUE].reverse() : [...SEQUENTIAL_BLUE];
+}
+
 /** Diverging ramp for signed values (embeddings are centred near zero, so the
  *  sign is meaningful — a sequential ramp would hide it).
  *

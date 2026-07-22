@@ -22,6 +22,7 @@ __all__ = [
     "ErrorResponse",
     "EstimateRequest",
     "EstimateResponse",
+    "ExportSummary",
     "ExportRequest",
     "ExportResponse",
     "GenerateRequest",
@@ -244,12 +245,31 @@ class ExportRequest(BaseModel):
     checkpoint: str = "data/model.csllm"
     tokenizer_dir: str = "data/tokenizer"
     out: str = "exports/latest"
+    #: Add a torch-free Python loader that works without this repository.
+    include_runtime: bool = False
+    #: Add the C++20 engine sources and a standalone CMakeLists.
+    include_cpp: bool = False
 
 
 class ExportResponse(BaseModel):
     out_dir: str
+    #: Bundle name — the path segment `/export/{name}/download` takes.
+    name: str
     num_params: int
+    #: Flat file -> size in bytes, including anything under runtime/ or cpp/.
     files: dict[str, int]
+    total_bytes: int
+    includes: list[str] = []
+
+
+class ExportSummary(BaseModel):
+    name: str
+    path: str
+    num_params: int | None = None
+    total_bytes: int
+    file_count: int
+    exported_at: str | None = None
+    includes: list[str] = []
 
 
 # ── inspection (diagnostics UI) ───────────────────────────────────────────────

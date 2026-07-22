@@ -8,11 +8,35 @@ byte-level BPE tokenizer and training loop, a **FastAPI** gateway with SSE and W
 telemetry, and a **React + TypeScript** diagnostics UI with a 3D attention view.
 Llama-style: RoPE + RMSNorm + SwiGLU, pre-norm residuals, weight-tied `lm_head`.
 
-**377 Python tests + 60 frontend tests pass, 0 compiler warnings, ruff clean, tsc clean.**
+**391 Python tests + 82 frontend tests pass, 0 compiler warnings, ruff clean, tsc clean.**
 
 ## Recent Changes
 
 *(reverse-chronological)*
+
+- **2026-07-22 — 3.0 Phase 4: export manager & packaging. CSLLM 3.0 COMPLETE.**
+  `export_bundle` gained `include_runtime` / `include_cpp` (both default off, so the plain
+  bundle stays the three documented files). `runtime/` ships a torch-free loader emitted from
+  `csllm/runtime_template.py` that rebuilds the BPE tokenizer from `tokenizer.json` alone;
+  `cpp/` ships the C++20 engine plus a standalone CMakeLists; `README.md` documents the real
+  tensor names. New `GET /exports` and `GET /export/{name}/download` (spooled ZIP_STORED zip,
+  built on a worker thread). New `ExportModal` reachable from the app header. 14 tests added.
+  **Verified live over CDP and then for real:** built a bundle from the modal, downloaded the
+  zip (49,210,819 bytes, 36 entries, integrity OK), extracted it to a clean directory, ran
+  `runtime/load.py` there, and built `libcsllm_engine.a` from `cpp/` with 0 warnings.
+
+- **2026-07-22 — 3.0 Phase 3: explainable inference playground.**
+  New `PlaygroundPanel` tab: one prompt, ONE `/ws/inspect` subscription, and a per-token
+  breakdown (tokenization chips → attention → probability distribution) for whichever token you
+  click. New `AttentionHeatmap` renders the query x key matrix on a canvas — the causal
+  staircase, with cells past a row's end drawn as surface rather than zero. `attentionVector` /
+  `attentionMatrix` added to `api/ws.ts`; the sequential ramp was promoted from
+  `TransformerGraph` into `theme.ts` (`sequentialColor`/`sequentialLegend`) so the 2D and 3D
+  views cannot drift; token-chip markup extracted to `TokenText.tsx`. **No backend changes** —
+  the stream already carried everything. 22 frontend tests added.
+  **Verified live over CDP:** 24 tokens generated; heat-map rows match the token chips exactly;
+  clicking token #2 repointed the breakdown; head and layer switches both repaint; zero console
+  errors.
 
 - **2026-07-22 — 3.0 Phase 2: training manager & dataset wiring.**
   `TrainingSupervisor` now supervises a *job kind* (`JOBS`: `train` | `prepare`) rather than
@@ -106,6 +130,46 @@ Llama-style: RoPE + RMSNorm + SwiGLU, pre-norm residuals, weight-tied `lm_head`.
 - **A CDP UI check must outlast the thing it is checking.** The 300-step debug run finishes in
   ~4 s at ~100k tok/s, so the first pause/resume verification found the buttons already disabled
   and reported a false failure. Drive a run long enough to still be alive when you click.
+- **The attention row for generated token `i` has `4 + i` keys, not `4 + i + 1`.** The capture is
+  from the decode step that PRODUCED that token: the query is the previous position, so the last
+  key label is unused for the final row. Getting this off by one shifts every column label by one
+  token and still looks entirely plausible.
+- **A ragged matrix must stay ragged.** Padding short rows to the widest draws "could not attend"
+  (the key was not in context yet) identically to "chose not to attend" — different claims.
+- **`attentionVector` clamps layer/head.** Panels hold them in state across generations, so a
+  stale index on a shallower model reads past the buffer and renders adjacent memory as attention.
+- **Two `tokenLabel`-ish forms exist on purpose**: `tokenLabel` (ProbabilityChart) returns a plain
+  string for tables/axes; `TokenText` (TokenText.tsx) returns markup so each whitespace glyph can
+  be styled. Do not merge them — the first is already covered by tests asserting `\n` not `↵`.
+- **`document.querySelector('.panel canvas')` finds the Chart.js chart, not the heat-map.** The
+  probability chart renders first in the breakdown, so a CDP pixel check must target
+  `.scroll-x canvas` — targeting the wrong one reported a false "canvas did not repaint" bug.
+**Export (3.0 Phase 4)**
+
+- **The exported C++ package needs the definitions the project's CMakeLists supplies.**
+  `build_info.cpp` and `gemm.cpp` reference `CSLLM_VERSION` / `CSLLM_BLAS_BACKEND` /
+  `CSLLM_USE_ACCELERATE` unconditionally, and recent macOS SDKs reject the `cblas_*` prototypes
+  without `ACCELERATE_NEW_LAPACK=1`. The first shipped CMakeLists omitted all four and did not
+  compile — always *build* the emitted package, never just eyeball it.
+- **The bundled loader must not import `csllm`.** It is emitted from a string in
+  `csllm/runtime_template.py`, so ruff and tsc cannot see it; `tests/test_export.py` imports the
+  emitted file and asserts it encodes identically to the real tokenizer, which is the only thing
+  standing between a drifted merge order and a deployed model that reads different token ids
+  than it was trained on.
+- **`exports/` is excluded from ruff** — bundles are generated artifacts, and a bundle
+  containing Python otherwise fails the project lint.
+- **Zip with ZIP_STORED, not DEFLATE.** safetensors is raw float32; deflating a 49 MB bundle
+  burns CPU for ~1%. Build it in a `SpooledTemporaryFile` on a worker thread, and close the
+  buffer in the generator's `finally` or an aborted download leaks a temp file per attempt.
+- **`button.action` / `button.ghost` are element-qualified selectors.** A download has to be a
+  real `<a>` to get a browser download rather than a fetch-into-blob, and an `<a class="action">`
+  matched none of the button styling until `a.action` was added.
+- **`.controls` bottom-aligns, so every control in a row needs the same number of note lines.**
+  A missing note sits a control lower than its peers; a wrapping one lifts it higher. This has
+  now caused a visible misalignment in three separate panels.
+- **The Bash tool's cwd persists between calls.** A `cd web` in one command left a later
+  `rm -rf exports/...` running in `web/`, which then reported `exports/` as missing and looked
+  briefly like data loss. Prefer absolute paths for anything destructive.
 - **`datasets/raw/` ships empty** (`.gitkeep` only). `shakespeare-sample.txt` and
   `speeches.jsonl` were added as fixtures so the browser and prepare path have something to
   read; they are slices of `data/tinyshakespeare.txt` and safe to delete.

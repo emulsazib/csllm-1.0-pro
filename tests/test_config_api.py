@@ -456,6 +456,89 @@ async def test_training_routes_report_unavailable_without_a_supervisor(client, m
 # ── export endpoint ──────────────────────────────────────────────────────────
 
 
+async def test_exports_listing_and_zip_download(client, tmp_path, monkeypatch):
+    """The zip is what a user actually receives, so round-trip it."""
+    import io
+    import zipfile
+
+    from gateway.routes import config as routes
+
+    exports = tmp_path / "exports"
+    bundle = exports / "v9"
+    (bundle / "runtime").mkdir(parents=True)
+    (bundle / "config.json").write_text(
+        json.dumps({"num_params": 1234, "exported_at": "2026-01-01T00:00:00+00:00",
+                    "includes": ["python-runtime"]})
+    )
+    (bundle / "model.safetensors").write_bytes(b"\x00" * 64)
+    (bundle / "runtime" / "load.py").write_text("# loader\n")
+    monkeypatch.setattr(routes, "EXPORTS_DIR", exports)
+
+    async with client as c:
+        listing = (await c.get("/exports")).json()
+        response = await c.get("/exports/v9/download".replace("/exports/", "/export/"))
+
+    assert len(listing) == 1
+    entry = listing[0]
+    assert entry["name"] == "v9"
+    assert entry["num_params"] == 1234
+    assert entry["includes"] == ["python-runtime"]
+    # Nested files count: a deployment package is not three files.
+    assert entry["file_count"] == 3
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert 'filename="v9.zip"' in response.headers["content-disposition"]
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = sorted(archive.namelist())
+        assert names == ["v9/config.json", "v9/model.safetensors", "v9/runtime/load.py"]
+        # Contents survive the round trip, not just the names.
+        assert archive.read("v9/model.safetensors") == b"\x00" * 64
+        assert archive.read("v9/runtime/load.py") == b"# loader\n"
+
+
+async def test_exports_listing_skips_non_bundles(client, tmp_path, monkeypatch):
+    from gateway.routes import config as routes
+
+    exports = tmp_path / "exports"
+    (exports / "not-a-bundle").mkdir(parents=True)  # no config.json
+    (exports / "stray.txt").write_text("x")
+    monkeypatch.setattr(routes, "EXPORTS_DIR", exports)
+
+    async with client as c:
+        assert (await c.get("/exports")).json() == []
+
+
+async def test_download_of_an_unknown_export_is_404(client, tmp_path, monkeypatch):
+    from gateway.routes import config as routes
+
+    monkeypatch.setattr(routes, "EXPORTS_DIR", tmp_path / "exports")
+    async with client as c:
+        assert (await c.get("/export/nope/download")).status_code == 404
+
+
+def test_resolve_export_refuses_to_escape(tmp_path, monkeypatch):
+    """Tested directly: an HTTP client normalises `..` out before sending."""
+    from fastapi import HTTPException
+
+    from gateway.routes import config as routes
+
+    exports = tmp_path / "exports"
+    (exports / "real").mkdir(parents=True)
+    (exports / "real" / "config.json").write_text("{}")
+    outside = tmp_path / "secret"
+    outside.mkdir()
+    (exports / "link").symlink_to(outside)
+    monkeypatch.setattr(routes, "EXPORTS_DIR", exports)
+
+    assert routes._resolve_export("real").name == "real"
+    for name in ["../secret", "..", "link", "nope"]:
+        with pytest.raises(HTTPException) as excinfo:
+            routes._resolve_export(name)
+        assert excinfo.value.status_code == 404, name
+
+
 async def test_export_endpoint_writes_a_bundle(client, tmp_path):
     tok = BPETokenizer()
     tok.train("hello world this is a small corpus for testing " * 40, 320)
