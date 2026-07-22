@@ -1,0 +1,19 @@
+{
+ "version_id": "v2-bcf2c5d8",
+ "index": 2,
+ "config": {
+  "vocab_size": 4096,
+  "n_layer": 8,
+  "n_head": 6,
+  "n_embd": 384,
+  "block_size": 256,
+  "ffn_hidden": 1024,
+  "rope_theta": 10000.0,
+  "norm_eps": 9.999999747378752e-06
+ },
+ "num_params": 15735168,
+ "activation_bytes": 1939886080,
+ "created_at": 1784722408.133047,
+ "path": "configs/versions/v2-bcf2c5d8.json",
+ "note": "v2"
+}

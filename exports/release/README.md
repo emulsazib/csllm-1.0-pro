@@ -3,7 +3,7 @@
 12,194,688 parameters · 6 layers × 6 heads × 384 d_model ·
 context 256 · vocab 4096
 
-Exported 2026-07-22T08:24:36+00:00 by CSLLM engine 1.0.0.
+Exported 2026-07-22T12:30:54+00:00 by CSLLM engine 1.0.0.
 
 ## Files
 
@@ -13,6 +13,7 @@ Exported 2026-07-22T08:24:36+00:00 by CSLLM engine 1.0.0.
 | `tokenizer.json` | Byte-level BPE: pattern, merges in rank order, vocab as byte lists. |
 | `config.json` | Hyperparameters, architecture flags, and provenance. |
 | `runtime/load.py` | Standalone loader — no torch, no dependency on the source repo. |
+| `cpp/` | The C++20 engine (headers + sources) and a CMakeLists. |
 
 ## Architecture
 
@@ -65,3 +66,12 @@ from runtime.load import CSLLMBundle
 bundle = CSLLMBundle('.')
 ids = bundle.tokenizer.encode('KING RICHARD:')
 ```
+
+### C++ engine
+
+```bash
+cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp/build
+```
+
+Builds `libcsllm_engine.a`. Dependency-free C++20; Accelerate is used for BLAS on Apple platforms and a portable GEMM elsewhere.
